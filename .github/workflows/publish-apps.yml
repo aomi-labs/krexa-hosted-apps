@@ -1,0 +1,102 @@
+name: Publish Aomi Apps
+
+on:
+  push:
+    branches:
+      - publish
+    paths:
+      - "apps/**"
+      - "ci/platform.json"
+      - "scripts/publish_app.py"
+      - ".github/workflows/publish-apps.yml"
+  workflow_dispatch:
+    inputs:
+      app_dir:
+        description: "Optional app directory, for example apps/zora"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-apps-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: Detect staged apps
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.detect.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed app directories
+        id: detect
+        run: |
+          python3 scripts/publish_app.py detect-changed \
+            --platform ci/platform.json \
+            --base "${{ github.event.before }}" \
+            --head "${{ github.sha }}" \
+            --app-dir "${{ inputs.app_dir }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+  publish:
+    name: Build and publish ${{ matrix.app_dir }}
+    needs: detect
+    if: needs.detect.outputs.apps != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app_dir: ${{ fromJson(needs.detect.outputs.apps) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.91"
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: hosted-app-${{ matrix.app_dir }}-x86_64-unknown-linux-gnu
+
+      - name: Build fetcher-compatible bundle
+        id: bundle
+        run: |
+          python3 scripts/publish_app.py build \
+            --platform ci/platform.json \
+            --app-dir "${{ matrix.app_dir }}" \
+            --target x86_64-unknown-linux-gnu \
+            --dist-dir dist \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.bundle.outputs.release_tag }}
+          TARBALL: ${{ steps.bundle.outputs.tarball }}
+          MANIFEST: ${{ steps.bundle.outputs.manifest }}
+          RELEASE_METADATA: ${{ steps.bundle.outputs.release_metadata }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "$TARBALL" \
+              "$MANIFEST" \
+              "$RELEASE_METADATA" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --notes-file dist/release-notes.md \
+              "$TARBALL" \
+              "$MANIFEST" \
+              "$RELEASE_METADATA"
+          fi
