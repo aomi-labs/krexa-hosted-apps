@@ -1,0 +1,41 @@
+{
+  "version": "aomi-git-stage-v1",
+  "platform": "krexa",
+  "app": {
+    "slug": "my-krexa-bot",
+    "display_name": "My Krexa Bot",
+    "config_path": "source/my-krexa-bot/Cargo.toml"
+  },
+  "source": {
+    "git_root": "/Users/cecilia/Code/krexa-hosted-apps",
+    "source_path": "source/my-krexa-bot",
+    "branch": "publish",
+    "commit": "05c1c90205de9f1a52435086f9d216661a30d6e3",
+    "tree": "bb18cca28a9cc5b82358e391a32837ff426dab38",
+    "digest": "sha256:2c70bffcab7af458842fbbf82cfe8afe882b47e24d1a046f27215d11dc6667b5",
+    "dirty": false
+  },
+  "publish": {
+    "source_repo": "aomi-labs/krexa-hosted-apps",
+    "app_release_tag": "latest",
+    "publish_branch": "publish",
+    "app_path": "apps/my-krexa-bot",
+    "expected_release_tag": "apps-my-krexa-bot-05c1c90205de",
+    "release_tag_convention": "apps-{app_slug}-{short_commit}",
+    "visibility": "private",
+    "review_policy": "platform-registration",
+    "idempotency_key": "sha256:c55d261338a430d8a3ed39c26b88710037058f62e6ca330dfa898e1c9a568135"
+  },
+  "files": [
+    {
+      "path": "Cargo.toml",
+      "sha256": "sha256:e808088a4a18f52149e37c54a1d88662a53c8cb92560ee10dc6d4631bda70e4b",
+      "bytes": 263
+    },
+    {
+      "path": "src/lib.rs",
+      "sha256": "sha256:26060eaa1e618a8e09a7010e843143f62cc35c9f1cd0f16d9f7ab12abebee486",
+      "bytes": 1030
+    }
+  ]
+}
