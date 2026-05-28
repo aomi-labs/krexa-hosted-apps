@@ -23,7 +23,7 @@ The pipeline:
 your source repo                   krexa-hosted-apps (this repo)             aomi backend
 ─────────────────                  ──────────────────────────                ────────────
 aomi.toml + src/         ──[1]──▶  apps/<slug>/                  ─[2]──▶    release
-   ▲                               .aomi-publish/manifest.json                  │
+   ▲                               .aomi/deployment.json                       │
    │ aomi-git deploy                publish-apps CI                            [3] activate
    │                                                                            │
    └────────  PR review ◀───────────────────────────────────────────────────────┘

@@ -63,7 +63,7 @@ These facts are enforced by CI; they exist for reference.
 |---|---|
 | Publication branch | `publish` (protected: no force push, no delete) |
 | Staged app path | `apps/<app_slug>/` |
-| Build contract file | `apps/<app_slug>/.aomi-publish/manifest.json` (written by `aomi-git deploy`) |
+| Build contract file | `apps/<app_slug>/.aomi/deployment.json` (written by `aomi-git deploy`) |
 | Release tag convention | `apps-{app_slug}-{short_commit}` |
 | Default visibility | `private` |
 | Required SDK version | see [`platform.json`](./platform.json) |
