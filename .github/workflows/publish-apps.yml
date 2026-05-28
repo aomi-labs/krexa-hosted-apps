@@ -7,7 +7,7 @@ on:
     paths:
       - "apps/**"
       - "platform.json"
-      - "scripts/publish_app.py"
+      - ".github/scripts/publish_app.py"
       - ".github/workflows/publish-apps.yml"
   workflow_dispatch:
     inputs:
@@ -37,7 +37,7 @@ jobs:
       - name: Detect changed app directories
         id: detect
         run: |
-          python3 scripts/publish_app.py detect-changed \
+          python3 .github/scripts/publish_app.py detect-changed \
             --platform platform.json \
             --base "${{ github.event.before }}" \
             --head "${{ github.sha }}" \
@@ -71,7 +71,7 @@ jobs:
       - name: Build fetcher-compatible bundle
         id: bundle
         run: |
-          python3 scripts/publish_app.py build \
+          python3 .github/scripts/publish_app.py build \
             --platform platform.json \
             --app-dir "${{ matrix.app_dir }}" \
             --target x86_64-unknown-linux-gnu \

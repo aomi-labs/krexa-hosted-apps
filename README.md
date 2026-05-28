@@ -48,14 +48,11 @@ long-lived shared secret.
 krexa-hosted-apps/
 ├── README.md           ← you are here
 ├── CONTRIBUTING.md     ← E2E Krexa contributor guide
+├── platform.json       ← platform descriptor (see below)
 ├── apps/               ← generated source per app; one dir per slug
 │   └── my-krexa-bot/
-├── ci/
-│   └── platform.json   ← CI contract: required SDK version, build target, etc.
-├── fixtures/
-│   └── hello-ci/       ← buildable crate for maintainer ad-hoc dry-runs
-└── scripts/
-    └── publish_app.py  ← internal build script driven by Actions; not for contributors
+└── fixtures/
+    └── hello-world/    ← buildable crate template; never deployed
 ```
 
 ## Publication contract
@@ -81,12 +78,37 @@ The backend trusts a release only after `PluginFetcher` validates the release
 tag, exact SDK version, build target, and plugin SHA-256 hashes inside the
 tarball — using a one-shot read PAT supplied at activation time.
 
+## Platform descriptor (`platform.json`)
+
+`platform.json` at the repo root is the **platform contract** — every rule
+your app must meet to publish here. It's hand-authored by Krexa platform
+ops and read by CI on every push.
+
+| Field | Meaning | Touched by |
+|---|---|---|
+| `name` | Platform tier label (`krexa`). Match in your `aomi.toml` as `platform = "krexa"`. | Ops on platform bring-up |
+| `source_repo` | This repo (`aomi-labs/krexa-hosted-apps`). CI verifies your `aomi.toml`'s `git` resolves here. | Ops |
+| `publish_branch` | The branch `aomi-git deploy` pushes to. Protected against force-push and deletion. | Ops |
+| `app_path_prefix` | Where staged apps land (`apps`). Combined with your slug → `apps/<slug>/`. | Ops |
+| `release_tag_convention` | Pattern for GitHub release tags built from your source commit. | Ops |
+| `visibility` | `private` — your apps default to private visibility on the backend. | Ops |
+| `review_policy` | `platform-registration` — describes how contributions are vetted. Informational. | Ops |
+| `required_sdk_version` | **The aomi-sdk version your app MUST pin in `Cargo.toml`.** Bundle validation fails on mismatch. | Ops on SDK bumps |
+| `default_target` | Rust target triple CI builds for (`x86_64-unknown-linux-gnu`). | Ops |
+
+You (the contributor) don't edit `platform.json`. You **read** the
+`required_sdk_version` and pin it in your `Cargo.toml`. That's it.
+
+When Krexa ops bumps `required_sdk_version`, you'll need to update your
+app's pin to match before your next deploy.
+
 ## Build internals
 
-CI is driven by [`scripts/publish_app.py`](./scripts/publish_app.py), invoked
-from [`.github/workflows/publish-apps.yml`](./.github/workflows/publish-apps.yml)
-on push to `publish`. Contributors don't run either directly — `aomi-git
-deploy` and the workflow handle it.
+The publish workflow at
+[`.github/workflows/publish-apps.yml`](./.github/workflows/publish-apps.yml)
+runs on push to `publish` and drives a small Python script tucked under
+`.github/scripts/` that no contributor (or anyone) runs by hand — `aomi-git
+deploy` and the workflow handle everything.
 
 ## Related
 
