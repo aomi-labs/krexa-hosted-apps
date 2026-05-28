@@ -93,7 +93,7 @@ secrets.
 
 ### `Cargo.toml`
 
-Pin the SDK to the version this repo's CI expects. Check `ci/platform.json`
+Pin the SDK to the version this repo's CI expects. Check `platform.json`
 in this repo for the current `required_sdk_version`:
 
 ```toml
@@ -106,7 +106,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-aomi-sdk   = "=0.1.19"          # match ci/platform.json's required_sdk_version
+aomi-sdk   = "=0.1.20"          # match platform.json's required_sdk_version
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 ```
@@ -240,7 +240,7 @@ AOMI_SERVER_TAGS` is enforced at activate time.
 | `dirty files outside owned publish path` | your krexa-hosted-apps clone has uncommitted changes to files NOT under `apps/<slug>/` | `git stash` in the clone |
 | `activation endpoint returned 409 Conflict` | `target_tags` don't subset the backend's `AOMI_SERVER_TAGS` | match your env to the backend you're activating against |
 | `activation endpoint returned 502 Bad Gateway` | release tarball doesn't exist yet (CI race) | retry after CI finishes |
-| `sdk_version mismatch` | your `aomi-sdk` Cargo dep doesn't match `ci/platform.json`'s `required_sdk_version` | pin to the right version |
+| `sdk_version mismatch` | your `aomi-sdk` Cargo dep doesn't match `platform.json`'s `required_sdk_version` | pin to the right version |
 
 ## Quick reference
 
@@ -251,7 +251,7 @@ AOMI_SERVER_TAGS` is enforced at activate time.
 | `/api/control/platforms` | recognized platforms (should include `krexa`) |
 | `/api/control/server-tags` | what the backend matches (`[staging]` or `[prod]`) |
 | `/api/control/apps/status` | full registry — your app should show `loaded: true` after activation |
-| `ci/platform.json` | CI contract: `required_sdk_version`, target, etc. |
+| `platform.json` | CI contract: `required_sdk_version`, target, etc. |
 
 For the underlying contract see ADR 0004, 0009 (amended), and 0010 in the
 [aomi-launch-my-agent](https://github.com/aomi-labs/aomi-launch-my-agent)

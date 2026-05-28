@@ -69,7 +69,7 @@ These facts are enforced by CI; they exist for reference.
 | Build contract file | `apps/<app_slug>/.aomi-publish/manifest.json` (written by `aomi-git deploy`) |
 | Release tag convention | `apps-{app_slug}-{short_commit}` |
 | Default visibility | `private` |
-| Required SDK version | see [`ci/platform.json`](./ci/platform.json) |
+| Required SDK version | see [`platform.json`](./platform.json) |
 
 Each release contains:
 

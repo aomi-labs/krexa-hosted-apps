@@ -388,7 +388,7 @@ def validate_deployment_manifest(
     if not allow_fixture_app and relpath(app_dir) != expected_app_path:
         fail(f"app directory must be {expected_app_path}")
     # Only the release-tag check is load-bearing here: it catches drift
-    # between aomi-git's tag-emission logic and ci/platform.json's
+    # between aomi-git's tag-emission logic and platform.json's
     # release_tag_convention. The other deployment fields are either
     # descriptor echoes or runtime activation state and are not worth coupling
     # this CI to.
@@ -714,7 +714,7 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     detect = subparsers.add_parser("detect-changed")
-    detect.add_argument("--platform", default="ci/platform.json")
+    detect.add_argument("--platform", default="platform.json")
     detect.add_argument("--base", default="")
     detect.add_argument("--head", default="HEAD")
     detect.add_argument("--app-dir", default="")
@@ -723,7 +723,7 @@ def main() -> None:
     detect.set_defaults(func=detect_changed)
 
     build = subparsers.add_parser("build")
-    build.add_argument("--platform", default="ci/platform.json")
+    build.add_argument("--platform", default="platform.json")
     build.add_argument("--app-dir", required=True)
     build.add_argument("--target")
     build.add_argument("--dist-dir", default="dist")

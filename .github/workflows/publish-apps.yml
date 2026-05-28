@@ -6,7 +6,7 @@ on:
       - publish
     paths:
       - "apps/**"
-      - "ci/platform.json"
+      - "platform.json"
       - "scripts/publish_app.py"
       - ".github/workflows/publish-apps.yml"
   workflow_dispatch:
@@ -38,7 +38,7 @@ jobs:
         id: detect
         run: |
           python3 scripts/publish_app.py detect-changed \
-            --platform ci/platform.json \
+            --platform platform.json \
             --base "${{ github.event.before }}" \
             --head "${{ github.sha }}" \
             --app-dir "${{ inputs.app_dir }}" \
@@ -72,7 +72,7 @@ jobs:
         id: bundle
         run: |
           python3 scripts/publish_app.py build \
-            --platform ci/platform.json \
+            --platform platform.json \
             --app-dir "${{ matrix.app_dir }}" \
             --target x86_64-unknown-linux-gnu \
             --dist-dir dist \
