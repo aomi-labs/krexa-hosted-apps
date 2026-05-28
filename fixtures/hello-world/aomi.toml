@@ -1,0 +1,6 @@
+[app]
+name = "hello-world"
+display_name = "Hello World"
+platform = "krexa"
+git = "https://github.com/aomi-labs/krexa-hosted-apps"
+public = false

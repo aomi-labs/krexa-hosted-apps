@@ -1,0 +1,7 @@
+[app]
+name = "my-krexa-bot"
+display_name = "My Krexa Bot"
+platform = "krexa"
+git = "https://github.com/aomi-labs/krexa-hosted-apps"
+public = false
+server_tags = ["staging"]

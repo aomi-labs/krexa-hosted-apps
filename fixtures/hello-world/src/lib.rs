@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 #[derive(Clone, Default)]
-struct HelloCiApp;
+struct HelloWorldApp;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct EchoArgs {
@@ -14,14 +14,14 @@ struct EchoArgs {
 struct EchoTool;
 
 impl DynAomiTool for EchoTool {
-    type App = HelloCiApp;
+    type App = HelloWorldApp;
     type Args = EchoArgs;
 
-    const NAME: &'static str = "hello_ci_echo";
-    const DESCRIPTION: &'static str = "Echo a message for CI bundle validation.";
+    const NAME: &'static str = "hello_world_echo";
+    const DESCRIPTION: &'static str = "Echo a message back — minimal Aomi app example.";
 
     fn run(
-        _app: &HelloCiApp,
+        _app: &HelloWorldApp,
         args: Self::Args,
         _ctx: DynToolCallCtx,
     ) -> Result<Value, String> {
@@ -30,10 +30,10 @@ impl DynAomiTool for EchoTool {
 }
 
 dyn_aomi_app!(
-    app = HelloCiApp,
-    name = "hello-ci",
+    app = HelloWorldApp,
+    name = "hello-world",
     version = "0.1.0",
-    preamble = "You are the CI validation fixture app.",
+    preamble = "You are the minimal Hello World Aomi app — echo whatever the user asks.",
     tools = [EchoTool],
     namespaces = ["common"]
 );
