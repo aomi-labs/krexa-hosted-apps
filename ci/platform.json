@@ -6,8 +6,6 @@
   "release_tag_convention": "apps-{app_slug}-{short_commit}",
   "visibility": "private",
   "review_policy": "platform-registration",
-  "bundle_contract": "aomi-plugin-bundle-v1",
-  "stage_manifest_version": "aomi-git-stage-v1",
-  "required_sdk_version": "0.1.19",
+  "required_sdk_version": "0.1.20",
   "default_target": "x86_64-unknown-linux-gnu"
 }
