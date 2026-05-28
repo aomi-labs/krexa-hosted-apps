@@ -116,8 +116,6 @@ def validate_platform_descriptor(descriptor: dict[str, Any]) -> None:
         "release_tag_convention",
         "visibility",
         "review_policy",
-        "bundle_contract",
-        "stage_manifest_version",
         "required_sdk_version",
         "default_target",
     ]
@@ -127,10 +125,6 @@ def validate_platform_descriptor(descriptor: dict[str, Any]) -> None:
     convention = descriptor["release_tag_convention"]
     if "{app_slug}" not in convention or "{short_commit}" not in convention:
         fail("release_tag_convention must contain {app_slug} and {short_commit}")
-    if descriptor["bundle_contract"] != "aomi-plugin-bundle-v1":
-        fail("bundle_contract must be aomi-plugin-bundle-v1")
-    if descriptor["stage_manifest_version"] != "aomi-git-stage-v1":
-        fail("stage_manifest_version must be aomi-git-stage-v1")
 
 
 def expected_release_tag(descriptor: dict[str, Any], app_slug: str, source_commit: str) -> str:
@@ -342,8 +336,6 @@ def validate_stage_manifest(
     *,
     allow_fixture_app: bool,
 ) -> None:
-    if stage.get("version") != descriptor["stage_manifest_version"]:
-        fail("stage manifest version is not aomi-git-stage-v1")
     if stage.get("platform") != descriptor["name"]:
         fail(f"stage manifest platform must be {descriptor['name']}")
 
@@ -425,8 +417,6 @@ def validate_bundle_manifest(
     missing = expected_keys - set(manifest)
     if missing:
         fail(f"bundle manifest missing fields: {', '.join(sorted(missing))}")
-    if manifest["version"] != descriptor["bundle_contract"]:
-        fail("bundle manifest version must be aomi-plugin-bundle-v1")
     if manifest["app_release_tag"] != release_tag:
         fail("bundle manifest app_release_tag does not match release tag")
     if manifest["sdk_version"] != descriptor["required_sdk_version"]:
@@ -554,7 +544,6 @@ def build_bundle(args: argparse.Namespace) -> None:
         copied.rename(final_plugin)
 
     bundle_manifest = {
-        "version": descriptor["bundle_contract"],
         "app_release_tag": release_tag,
         "sdk_version": sdk_version,
         "target": target,
@@ -588,7 +577,6 @@ def build_bundle(args: argparse.Namespace) -> None:
     shutil.copy2(manifest_path, standalone_manifest)
 
     release_metadata = {
-        "contract": descriptor["bundle_contract"],
         "platform": descriptor["name"],
         "app_slug": app_slug,
         "visibility": descriptor["visibility"],
