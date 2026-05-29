@@ -18,7 +18,11 @@ import tomllib
 from typing import Any
 
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+# NOTE: this script lives at .github/scripts/publish_app.py — parents[2] is
+# the repo root. If you move the script, update this index. Picking the wrong
+# REPO_ROOT silently breaks detect-changed (no apps appear under .github/apps/
+# so the loop reports zero changed apps and CI looks like it succeeded).
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 HEX_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{12,40}$")
 
