@@ -75,21 +75,26 @@ name         = "my-krexa-app"           # slug — kebab-case, becomes the relea
 display_name = "My Krexa App"
 platform     = "krexa"                  # MUST be "krexa" for this repo
 git          = "https://github.com/aomi-labs/krexa-hosted-apps"
-public       = false                    # krexa apps are private by default
-
-# Required: env-var reference to a GitHub token with read access to this
-# private repo's releases. The backend uses this token ONCE to fetch your
-# release tarball; it is never persisted, never logged, never written to disk.
-access_token = "$KREXA_GH_READ_TOKEN"
+public       = false                    # krexa apps are private by default on the backend
 
 # Optional: pin which backend class can load this release.
 # Omit to default to ["staging"]. Set to ["prod"] only after staging is verified.
 # server_tags = ["staging"]
 ```
 
-**Reject literal tokens in `aomi.toml`.** Always use an env-var reference. The
-parser refuses literal tokens at deploy time so a committed config cannot leak
-secrets.
+**`access_token` is currently not needed.** The krexa-hosted-apps repo is
+public on GitHub today, so the backend can fetch release tarballs without
+auth. If/when this repo is made private, add an env-var-referenced token
+to your aomi.toml:
+
+```toml
+# only needed if/when this repo goes private — currently public, skip
+access_token = "$KREXA_GH_READ_TOKEN"   # ✅ env-var ref
+access_token = "ghp_xxxxxxx"            # ❌ rejected at parse — never commit secrets
+```
+
+Literal tokens (no `$` prefix) are rejected at parse so committed configs
+cannot leak secrets.
 
 ### `Cargo.toml`
 
@@ -185,8 +190,6 @@ ops with:
 
 - the release tag (`apps-<slug>-<short-commit>`)
 - the target environment (staging or prod)
-- a temporary GitHub PAT with read access to releases on this repo
-  (one-shot — the backend uses it once to fetch, never persists)
 
 They run:
 
@@ -194,7 +197,6 @@ They run:
 aomi-git activate apps-<slug>-<short-commit> \
   --backend-url https://staging-api.aomi.dev \
   --activation-token <krexa-platform-token> \
-  --access-token-env <ENV_NAME_OF_GH_PAT> \
   --source-repo aomi-labs/krexa-hosted-apps \
   --target-tag staging \
   --visibility private
@@ -202,6 +204,13 @@ aomi-git activate apps-<slug>-<short-commit> \
 
 …and confirms your app appears in
 `https://staging-api.aomi.dev/api/control/apps/status`.
+
+> **GitHub fetch auth.** Today this repo is public on GitHub, so the
+> backend fetches the release tarball unauthenticated. If/when the repo
+> goes private, ops would also need a one-shot GitHub PAT with read
+> access (per ADR 0009 amended: passed in the activation request body,
+> used once, never persisted, never logged) — passed via
+> `--access-token-env <ENV_NAME>`.
 
 ### Why activation is held by ops, not contributors
 
