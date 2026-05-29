@@ -219,29 +219,56 @@ clone in sync with `origin/publish`. Most contributors should never need this.
 
 ## 4. Activation handoff
 
-Once your CI run is green and the GitHub release exists, ping Krexa platform
-ops with:
+Once your CI run is green and the GitHub release exists, hand off to Krexa
+platform ops.
 
-- the release tag (`apps-<slug>-<short-commit>`)
-- the target environment (staging or prod)
+### When is CI done?
 
-If they have access to your source repo's `.aomi/deployment.json` (e.g.
-you handed them the directory or they checked out your branch), the happy
-path is a one-liner:
+`aomi-git deploy` prints a Next-steps block at the end that links the two
+URLs you need to watch:
+
+1. **CI build status** — `https://github.com/aomi-labs/krexa-hosted-apps/actions`.
+   Wait for the run triggered by your push to go green (~1–3 min).
+2. **Release availability** — once CI succeeds, your release appears at
+   `https://github.com/aomi-labs/krexa-hosted-apps/releases/tag/apps-<slug>-<short-commit>`.
+   This is the artifact the backend will fetch.
+
+When both are green, you're ready to request activation.
+
+### Requesting activation
+
+Post in the `#aomi-apps` Discord channel and tag `@platform-ops`. Include:
+
+- **Release tag:** `apps-<slug>-<short-commit>` (printed by `aomi-git deploy`,
+  also in your `.aomi/deployment.json`)
+- **Target environment:** `staging` for the first activation, `prod` later
+  after staging is verified
+- **Your GitHub handle** so we can confirm the activated app back to you
+
+A `@platform-ops` member runs `aomi-git activate` against the target backend
+with the Krexa platform token (held by them), then confirms by linking your
+app at `https://staging-api.aomi.dev/api/control/apps/status`.
+
+### What ops actually runs
+
+If they have access to your source repo's `.aomi/deployment.json` (e.g. you
+handed them the directory or they checked out your branch), the whole
+command is a one-liner:
 
 ```bash
 AOMI_APP_ACTIVATION_TOKEN=<krexa-platform-token> \
 AOMI_BACKEND_URL=https://staging-api.aomi.dev \
-  aomi-git activate --target-tag staging
+  aomi-git activate
 ```
 
 `aomi-git activate` reads `.aomi/deployment.json` (left there by your
 `aomi-git deploy`) and pulls release tag, platform, source repo, source
-provenance, display name, and visibility from it. Ops only needs to supply
-the target tag.
+provenance, display name, visibility, **and target tags** from it. The
+target tags come from the build's `server_tags` (see "How target tags work"
+below) — ops doesn't normally pass `--target-tag` at all.
 
-If they don't have that file (the common B2B case — ops works from a
-separate machine and just gets a release tag from you), every field is
+The common Krexa B2B case is the opposite: ops works from a separate
+machine and just receives a release tag from you. Then every field is
 explicit:
 
 ```bash
@@ -264,6 +291,26 @@ aomi-git activate apps-<slug>-<short-commit> \
 > used once, never persisted, never logged) — passed via `--access-token
 > "$ENV_NAME"` (matching the same `$ENV_NAME` form used in `aomi.toml`).
 
+### How target tags work
+
+`aomi.toml [app].server_tags` is the **build's declared scope** — the set of
+backend tiers you (the contributor) signed off on shipping to. `aomi-git
+deploy` copies this into `.aomi/deployment.json`, where it travels with the
+release.
+
+At activate time ops can **narrow** but cannot **widen**:
+
+- If you declared `server_tags = ["staging"]` in aomi.toml, ops can only
+  activate to staging. An attempt to widen to prod is rejected with a
+  multi-line error pointing back at your source repo.
+- If you declared `server_tags = ["staging", "prod"]`, ops can activate to
+  either (or both). They'll typically start with `--target-tag staging`,
+  verify, then re-run with `--target-tag prod`.
+
+This makes your word at build time a contract, not advisory. If you want
+your app on prod, you have to say so in your aomi.toml first — Krexa ops
+can't widen the scope on your behalf.
+
 ### Why activation is held by ops, not contributors
 
 - The activation token is the platform's commercial trust gate. Anyone holding
@@ -279,11 +326,15 @@ aomi-git activate apps-<slug>-<short-commit> \
 
 After your app is verified on staging:
 
-1. Edit `aomi.toml` → `server_tags = ["prod"]`
+1. Edit `aomi.toml`: change `server_tags = ["staging"]` to either
+   `["prod"]` (prod-only) or `["staging", "prod"]` (both tiers loadable
+   from this release).
 2. Re-run `aomi-git deploy` — this creates a new release tag (different
-   source commit) targeting prod
-3. Ask Krexa ops to activate against `https://api.aomi.dev` with
-   `--target-tag prod`
+   source commit) carrying the wider declared scope.
+3. Post in `#aomi-apps` Discord, tag `@platform-ops` / Krexa ops, and ask
+   for activation against `https://api.aomi.dev`. Per the target-tag rule,
+   ops cannot promote your existing staging release to prod without this
+   re-deploy — the build's declared scope is the activation ceiling.
 
 Your app will not load on prod backends until step 3 — even though the row
 exists in the shared backend database, the subset check `target_tags ⊆
