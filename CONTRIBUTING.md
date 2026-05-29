@@ -1,41 +1,32 @@
 # Launching a Krexa Aomi App
 
-This guide is for engineers building Aomi apps for the **Krexa** platform.
-Krexa is a private B2B partner — this repo is invite-only, not for general
-open-source contributions. If you weren't given write access by Krexa's
-platform ops, you're in the wrong place.
+End-to-end guide for shipping a Krexa Aomi app into krexa-hosted-apps and getting it loaded on the Aomi runtime. Invite-only — if you weren't given write access by Krexa ops, you're in the wrong place.
 
-If you read three things, read these:
+1. **Author** your app in your own source repo: a Rust `cdylib` crate + `aomi.toml` (`platform = "krexa"`).
+2. **Deploy** with `aomi-git deploy` — stages your source into `apps/<slug>/` of a krexa-hosted-apps clone and pushes to `publish`.
+3. **CI** builds the cdylib and publishes a GitHub release tagged `apps-<slug>-<short-commit>`.
+4. **Activate**: hand the release tag to Krexa ops; they run `aomi-git activate` and the backend fetches + loads.
 
-1. You write code in **your own source repo**. You don't hand-edit anything
-   under `apps/<slug>/` in this repo — that path is staged for you by the
-   `aomi-git` CLI.
-2. Releases are tagged deterministically from your source commit
-   (`apps-<slug>-<short-commit>`). Once your code is good, the rest of the
-   pipeline is reproducible.
-3. The activation token that makes the backend actually load your release is
-   held by Krexa platform ops. You don't hold it; you ship a release and ping
-   ops to activate it.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant Src as your source repo
+    participant CLI as aomi-git
+    participant Repo as krexa-hosted-apps
+    participant CI as publish CI
+    participant Ops as Krexa ops
+    participant BE as Aomi backend
 
-The pipeline:
-
+    You->>Src: write aomi.toml + src/
+    You->>CLI: aomi-git deploy --platform-repo-dir <clone>
+    CLI->>Repo: stage apps/<slug>/, commit, push
+    Repo->>CI: trigger
+    CI->>Repo: upload release apps-<slug>-<short-commit>
+    You->>Ops: release tag
+    Ops->>BE: aomi-git activate (platform token)
+    BE->>BE: fetch + validate + load
 ```
-your source repo                   krexa-hosted-apps (this repo)             aomi backend
-─────────────────                  ──────────────────────────                ────────────
-aomi.toml + src/         ──[1]──▶  apps/<slug>/                  ─[2]──▶    release
-   ▲                               .aomi/deployment.json                       │
-   │ aomi-git deploy                publish-apps CI                            [3] activate
-   │                                                                            │
-   └────────  PR review ◀───────────────────────────────────────────────────────┘
-              & merge by ops
-```
-
-1. `aomi-git deploy` stages your source under `apps/<slug>/` and pushes a
-   commit to the `publish` branch
-2. GitHub Actions builds the cdylib and uploads a release tarball
-3. Krexa ops runs `aomi-git activate <release-tag>` against the target
-   backend with the platform's activation token. The backend fetches the
-   release, validates the SDK contract, loads the plugin.
 
 ---
 
