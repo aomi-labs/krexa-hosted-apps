@@ -41,22 +41,6 @@ aomi.toml + src/         ──[1]──▶  apps/<slug>/                  ─[2
 
 ## Prerequisites
 
-### Two clones, one writes code, one transits
-
-Before anything, get clear on the two repos involved. You'll have **both
-checked out at the same time** but you only touch one:
-
-| Directory | Who edits | What for |
-|---|---|---|
-| `your-krexa-app-source/` (somewhere of your choosing) | **You.** Write Rust, commit, push to a remote if you want. | Authoring your app's code. |
-| `krexa-hosted-apps/` (a clone of *this* repo) | **`aomi-git` only.** Never hand-edit. | Transit point — `aomi-git deploy` copies your source into it, commits, and pushes to the `publish` branch. |
-
-You can put `your-krexa-app-source/` anywhere — your home dir, `~/code/`,
-whatever. It just needs to be a git repo (the CLI uses its commit hash to
-compute the release tag).
-
-### Install
-
 - **Rust nightly** (the SDK builds on `2024` edition)
 - **`gh` (GitHub CLI)** logged into an account that has been added as a
   collaborator on `aomi-labs/krexa-hosted-apps`
@@ -65,14 +49,6 @@ compute the release tag).
   ```bash
   cargo install --git https://github.com/aomi-labs/aomi-sdk --features cli aomi-sdk
   # binary lands at ~/.cargo/bin/aomi-git
-  ```
-
-- **A local clone of krexa-hosted-apps** somewhere you can push from. The CLI
-  needs a place to stage your files before pushing — pick any path. **You
-  never edit anything inside this clone by hand.**
-
-  ```bash
-  git clone https://github.com/aomi-labs/krexa-hosted-apps   # anywhere on disk
   ```
 
 You do NOT need the activation token to contribute. Krexa ops holds it.
@@ -182,6 +158,25 @@ If any check fails, fix `aomi.toml` before running deploy.
 ---
 
 ## 3. Deploy: stage + push
+
+This is the step where `krexa-hosted-apps` enters the picture. Up to here
+you've been working entirely in your own source repo. Now `aomi-git` needs
+a **transit clone** of krexa-hosted-apps to stage your files into before
+pushing.
+
+### Two clones, one writes code, one transits
+
+| Directory | Who edits | What for |
+|---|---|---|
+| Your source repo | **You.** Write Rust, commit. | Authoring. |
+| A local clone of `krexa-hosted-apps` | **`aomi-git` only.** Never hand-edit. | Transit — the CLI copies your source in, commits, pushes. |
+
+```bash
+# anywhere on disk:
+git clone https://github.com/aomi-labs/krexa-hosted-apps
+```
+
+Then, from **your source repo**, point the CLI at that clone:
 
 ```bash
 aomi-git deploy --platform-repo-dir /path/to/krexa-hosted-apps
