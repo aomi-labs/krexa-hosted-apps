@@ -18,14 +18,17 @@ The short version:
 
 1. Krexa ops adds you as a collaborator on this repo (one-time).
 2. In your own source repo, author your app with an `aomi.toml` declaring
-   `platform = "krexa"`, `git = "https://github.com/aomi-labs/krexa-hosted-apps"`,
-   and `access_token = "$ENV_VAR_NAME"` referencing a GH PAT env var.
-3. Run `aomi-git deploy --platform-repo-dir /path/to/this/repo` — it stages
-   your source under `apps/<slug>/`, commits, and pushes to `publish`.
+   `platform = "krexa"` and `git = "https://github.com/aomi-labs/krexa-hosted-apps"`.
+   The `access_token` field is currently optional — see CONTRIBUTING.md for
+   the "why" — but add `access_token = "$ENV_VAR_NAME"` (env-var ref, never
+   a literal token) the day this repo goes private.
+3. Run `aomi-git deploy`. It auto-manages a transit clone of this repo
+   under `~/.aomi/transit/`, stages your source into `apps/<slug>/`,
+   commits, and pushes to `publish` — no flags, no clone management.
 4. GitHub Actions builds the cdylib and uploads a release tarball.
-5. Hand off to Krexa ops: release tag + a one-shot read PAT. Ops runs
-   `aomi-git activate` against the target backend with the Krexa platform
-   token (held by them).
+5. Hand off to Krexa ops: release tag (+ a one-shot read PAT if/when this
+   repo goes private). Ops runs `aomi-git activate` against the target
+   backend with the Krexa platform token (held by them).
 
 ## Trust model
 

@@ -19,8 +19,8 @@ sequenceDiagram
     participant BE as Aomi backend
 
     You->>Src: write aomi.toml + src/
-    You->>CLI: aomi-git deploy --platform-repo-dir <clone>
-    CLI->>Repo: stage apps/<slug>/, commit, push
+    You->>CLI: aomi-git deploy
+    CLI->>Repo: clone (cached), stage apps/<slug>/, commit, push
     Repo->>CI: trigger
     CI->>Repo: upload release apps-<slug>-<short-commit>
     You->>Ops: release tag
@@ -33,8 +33,11 @@ sequenceDiagram
 ## Prerequisites
 
 - **Rust nightly** (the SDK builds on `2024` edition)
+- **`git`** on `PATH` — `aomi-git` shells out to it for the transit clone
 - **`gh` (GitHub CLI)** logged into an account that has been added as a
-  collaborator on `aomi-labs/krexa-hosted-apps`
+  collaborator on `aomi-labs/krexa-hosted-apps`. Used implicitly: `git`'s
+  credential helper picks up the `gh auth` token when cloning the platform
+  repo.
 - **`aomi-git`** — the deploy CLI, shipped from the SDK:
 
   ```bash
@@ -52,7 +55,7 @@ You do NOT need the activation token to contribute. Krexa ops holds it.
 my-krexa-app/
 ├── aomi.toml
 ├── Cargo.toml
-├── .gitignore       (must include .aomi/ and target/)
+├── .gitignore       (must include .aomi/, target/, and Cargo.lock)
 └── src/lib.rs       (dyn_aomi_app! registers your tools)
 ```
 
@@ -71,19 +74,40 @@ public       = false                    # krexa apps are private by default on t
 # server_tags = ["staging"]
 ```
 
-**`access_token` is currently not needed.** The krexa-hosted-apps repo is
-public on GitHub today, so the backend can fetch release tarballs without
-auth. If/when this repo is made private, add an env-var-referenced token
-to your aomi.toml:
+#### About `access_token`
 
-```toml
-# only needed if/when this repo goes private — currently public, skip
-access_token = "$KREXA_GH_READ_TOKEN"   # ✅ env-var ref
-access_token = "ghp_xxxxxxx"            # ❌ rejected at parse — never commit secrets
-```
+`aomi-git` works by pushing your code into a managed platform repository under
+the `aomi-labs` GitHub org — for Krexa, that's `aomi-labs/krexa-hosted-apps`
+(this repo). At activation time, the Aomi backend **fetches your release
+tarball from that platform repo on GitHub**. So whether you need an
+`access_token` depends on one question: is the platform repo public or
+private on GitHub?
 
-Literal tokens (no `$` prefix) are rejected at parse so committed configs
-cannot leak secrets.
+- **Today, `krexa-hosted-apps` is public on GitHub.** The backend can fetch
+  your release tarball anonymously. You can omit the `access_token` field
+  from your `aomi.toml`.
+- **If/when this repo is made private** — which is the eventual B2B intent —
+  the backend will need a GitHub PAT with read access to releases. You'd
+  declare it in `aomi.toml` as a reference to an env var, never the token
+  itself. Literal tokens are rejected at parse so a committed config can
+  never leak a secret:
+
+  ```toml
+  # add when krexa-hosted-apps goes private — currently public, skip
+  access_token = "$KREXA_GH_READ_TOKEN"   # ✅ env-var ref — resolved at deploy time
+  access_token = "ghp_xxxxxxx"            # ❌ rejected at parse — never commit secrets
+  ```
+
+Per [ADR 0009 amended](https://github.com/aomi-labs/aomi-launch-my-agent),
+the fetch token is **transient**: passed once in the activation request body,
+used once by the backend to download the tarball, never persisted, never
+logged, never written to disk. When this repo does go private, Krexa ops
+will ask you for a fresh PAT each activation rather than holding one
+long-lived shared secret.
+
+> Note: this `access_token` (a GitHub PAT) is a **separate concept** from the
+> Krexa platform's **activation token**, which authorizes writes against the
+> Aomi backend. The activation token is held by Krexa ops — you never see it.
 
 ### `Cargo.toml`
 
@@ -111,71 +135,61 @@ this repo won't resolve. See `apps/my-krexa-bot/` for a reference layout.
 
 ---
 
-## 2. Sanity check: dry-run preflight
+## 2. Sanity check: build + dry-run
 
 ```bash
 cargo check                    # make sure it compiles
 ```
 
-Then dry-run against staging:
+Then dry-run against staging. Dry-run does the offline plan **and** the online
+preflight (backend reachability, branch contract, server-tag subset check) —
+it's the single "show me what would happen" command:
 
 ```bash
-export KREXA_GH_READ_TOKEN=ghp_...   # PAT with read access to releases
+# only export KREXA_GH_READ_TOKEN if your aomi.toml declares
+# access_token = "$KREXA_GH_READ_TOKEN" (currently optional — see above)
 AOMI_BACKEND_URL=https://staging-api.aomi.dev \
-  aomi-git deploy --dry-run --preflight
+  aomi-git deploy --dry-run
 ```
 
-Open `.aomi/deployment.json` next to your `aomi.toml` and verify every check
-passes:
+You should see all four pipeline stages pass:
 
-```jsonc
-{
-  "checks": [
-    { "name": "git_clean",                "passed": true },
-    { "name": "platform_declared",        "passed": true, "detail": "krexa" },
-    { "name": "git_declared",             "passed": true },
-    { "name": "server_tags",              "passed": true, "detail": "defaulted to [staging] ..." },
-    { "name": "backend_reachable",        "passed": true },
-    { "name": "platform_resolved",        "passed": true, "detail": "krexa -> aomi-labs/krexa-hosted-apps" },
-    { "name": "branch_matches_contract",  "passed": true, "detail": "publish == publish" },
-    { "name": "git_url_matches_platform", "passed": true },
-    { "name": "server_tags_match",        "passed": true, "detail": "target [staging] subset of server [staging]" }
-  ]
-}
+```text
+Preflight
+  [ok]   workspace git_clean
+  [ok]   manifest  platform_declared, git_declared  ·  defaulted=true server_tags=[staging]
+  [ok]   platform  platform_resolved, branch_matches_contract, git_url_matches_platform  ·  deployment_branch=publish github_repo=aomi-labs/krexa-hosted-apps name=krexa
+  [ok]   backend   backend_reachable, server_tags_match
 ```
 
-If any check fails, fix `aomi.toml` before running deploy.
+The same plan also lands in `.aomi/deployment.json` next to your `aomi.toml`
+(read it if you need machine-readable detail or want to inspect resolved
+facts).
+
+If any stage fails, fix the underlying issue (usually your `aomi.toml`)
+before running deploy. Warnings (`[warn]`) are advisory and don't block —
+a common one is `git_url_matches_platform` when you're deploying from a fork.
 
 ---
 
-## 3. Deploy: stage + push
+## 3. Deploy
 
-This is the step where `krexa-hosted-apps` enters the picture. Up to here
-you've been working entirely in your own source repo. Now `aomi-git` needs
-a **transit clone** of krexa-hosted-apps to stage your files into before
-pushing.
-
-### Two clones, one writes code, one transits
-
-| Directory | Who edits | What for |
-|---|---|---|
-| Your source repo | **You.** Write Rust, commit. | Authoring. |
-| A local clone of `krexa-hosted-apps` | **`aomi-git` only.** Never hand-edit. | Transit — the CLI copies your source in, commits, pushes. |
+From your source repo:
 
 ```bash
-# anywhere on disk:
-git clone https://github.com/aomi-labs/krexa-hosted-apps
+aomi-git deploy
 ```
 
-Then, from **your source repo**, point the CLI at that clone:
-
-```bash
-aomi-git deploy --platform-repo-dir /path/to/krexa-hosted-apps
-```
+That's it. `aomi-git` manages a transit clone of `krexa-hosted-apps` for you
+under `~/.aomi/transit/aomi-labs-krexa-hosted-apps/` (you never touch it —
+it's a CLI-managed cache). On first deploy it clones; on subsequent deploys
+it fetches and resets. Auth flows through your normal `git` credential
+helper — if you've been added as a collaborator and `gh auth login` works,
+this works.
 
 This:
 
-1. Snapshots your source tree into `apps/<slug>/` in this repo
+1. Snapshots your source tree into `apps/<slug>/` in the transit clone
 2. Writes the staging manifest CI expects
 3. Commits and pushes to `publish`
 4. The `publish-apps` workflow auto-fires:
@@ -189,6 +203,18 @@ Watch CI at <https://github.com/aomi-labs/krexa-hosted-apps/actions>.
 > release tarball doesn't exist yet when push completes. That's expected. The
 > platform operator runs the activate step once CI has uploaded.
 
+### Escape hatch: `--platform-dir`
+
+If you need to manage the clone yourself (air-gapped CI, custom auth, or
+debugging the staged tree before push), pass a directory you control:
+
+```bash
+aomi-git deploy --platform-dir /path/to/your/krexa-hosted-apps-clone
+```
+
+This skips the transit cache entirely. You're responsible for keeping that
+clone in sync with `origin/publish`. Most contributors should never need this.
+
 ---
 
 ## 4. Activation handoff
@@ -199,13 +225,31 @@ ops with:
 - the release tag (`apps-<slug>-<short-commit>`)
 - the target environment (staging or prod)
 
-They run:
+If they have access to your source repo's `.aomi/deployment.json` (e.g.
+you handed them the directory or they checked out your branch), the happy
+path is a one-liner:
+
+```bash
+AOMI_APP_ACTIVATION_TOKEN=<krexa-platform-token> \
+AOMI_BACKEND_URL=https://staging-api.aomi.dev \
+  aomi-git activate --target-tag staging
+```
+
+`aomi-git activate` reads `.aomi/deployment.json` (left there by your
+`aomi-git deploy`) and pulls release tag, platform, source repo, source
+provenance, display name, and visibility from it. Ops only needs to supply
+the target tag.
+
+If they don't have that file (the common B2B case — ops works from a
+separate machine and just gets a release tag from you), every field is
+explicit:
 
 ```bash
 aomi-git activate apps-<slug>-<short-commit> \
-  --backend-url https://staging-api.aomi.dev \
+  --backend https://staging-api.aomi.dev \
   --activation-token <krexa-platform-token> \
-  --source-repo aomi-labs/krexa-hosted-apps \
+  --platform krexa \
+  --git aomi-labs/krexa-hosted-apps \
   --target-tag staging \
   --visibility private
 ```
@@ -213,12 +257,12 @@ aomi-git activate apps-<slug>-<short-commit> \
 …and confirms your app appears in
 `https://staging-api.aomi.dev/api/control/apps/status`.
 
-> **GitHub fetch auth.** Today this repo is public on GitHub, so the
-> backend fetches the release tarball unauthenticated. If/when the repo
-> goes private, ops would also need a one-shot GitHub PAT with read
+> **GitHub fetch auth.** Today `krexa-hosted-apps` is public on GitHub, so
+> the backend fetches the release tarball unauthenticated. If/when the
+> repo goes private, ops will also need a one-shot GitHub PAT with read
 > access (per ADR 0009 amended: passed in the activation request body,
-> used once, never persisted, never logged) — passed via
-> `--access-token-env <ENV_NAME>`.
+> used once, never persisted, never logged) — passed via `--access-token
+> "$ENV_NAME"` (matching the same `$ENV_NAME` form used in `aomi.toml`).
 
 ### Why activation is held by ops, not contributors
 
@@ -236,8 +280,8 @@ aomi-git activate apps-<slug>-<short-commit> \
 After your app is verified on staging:
 
 1. Edit `aomi.toml` → `server_tags = ["prod"]`
-2. Re-run `aomi-git deploy --platform-repo-dir <krexa-hosted-apps>` — this
-   creates a new release tag (different source commit) targeting prod
+2. Re-run `aomi-git deploy` — this creates a new release tag (different
+   source commit) targeting prod
 3. Ask Krexa ops to activate against `https://api.aomi.dev` with
    `--target-tag prod`
 
@@ -251,10 +295,11 @@ AOMI_SERVER_TAGS` is enforced at activate time.
 
 | Error | Cause | Fix |
 |---|---|---|
-| `git tree is dirty` | uncommitted files in your source repo (often `.aomi/deployment.json` from a previous dry-run) | commit, or add `.aomi/` to `.gitignore` |
+| `git tree is dirty` | uncommitted files in your source repo (often `.aomi/deployment.json` from a previous dry-run) | commit, or add `.aomi/`, `target/`, and `Cargo.lock` to `.gitignore` |
 | `aomi.toml [app].access_token must be \`$ENV_VAR_NAME\`` | you put a literal token in `aomi.toml` | use `"$ENV_VAR_NAME"`; never commit secrets |
 | `env var \`KREXA_GH_READ_TOKEN\` is not set` | aomi.toml references a token env var that isn't exported | `export KREXA_GH_READ_TOKEN=ghp_...` before running |
-| `dirty files outside owned publish path` | your krexa-hosted-apps clone has uncommitted changes to files NOT under `apps/<slug>/` | `git stash` in the clone |
+| `git clone ... exited 128` | `aomi-git` couldn't fetch the platform repo into its transit cache (auth or network) | `gh auth login`; confirm you're a collaborator on `aomi-labs/krexa-hosted-apps`; if still wedged, `rm -rf ~/.aomi/transit/aomi-labs-krexa-hosted-apps/` and retry |
+| `failed to refresh transit clone` | transit cache got into a weird state (interrupted clone, manual edits) | `rm -rf ~/.aomi/transit/aomi-labs-krexa-hosted-apps/` and re-run `aomi-git deploy` |
 | `activation endpoint returned 409 Conflict` | `target_tags` don't subset the backend's `AOMI_SERVER_TAGS` | match your env to the backend you're activating against |
 | `activation endpoint returned 502 Bad Gateway` | release tarball doesn't exist yet (CI race) | retry after CI finishes |
 | `sdk_version mismatch` | your `aomi-sdk` Cargo dep doesn't match `platform.json`'s `required_sdk_version` | pin to the right version |
