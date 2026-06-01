@@ -5,7 +5,7 @@ End-to-end guide for shipping a Krexa Aomi app into krexa-hosted-apps and gettin
 1. **Author** your app in your own source repo: a Rust `cdylib` crate + `aomi.toml` (`platform = "krexa"`).
 2. **Deploy** with `aomi-git deploy` — stages your source into `apps/<slug>/` of a krexa-hosted-apps clone and pushes to `publish`.
 3. **CI** builds the cdylib and publishes a GitHub release tagged `apps-<slug>-<short-commit>`.
-4. **Activate**: hand the release tag to Krexa ops; they run `aomi-git activate` and the backend fetches + loads.
+4. **Request activation** with `aomi-git activate --request` — it posts your app + release tag to the ops Discord channel and pings ops. Krexa ops mint a token scoped to your release and run `aomi-git activate`; the backend fetches + loads.
 
 ```mermaid
 sequenceDiagram
@@ -23,8 +23,8 @@ sequenceDiagram
     CLI->>Repo: clone (cached), stage apps/<slug>/, commit, push
     Repo->>CI: trigger
     CI->>Repo: upload release apps-<slug>-<short-commit>
-    You->>Ops: release tag
-    Ops->>BE: aomi-git activate (platform token)
+    You->>Ops: aomi-git activate --request (Discord ping)
+    Ops->>BE: mint token scoped to release + aomi-git activate
     BE->>BE: fetch + validate + load
 ```
 
@@ -252,26 +252,37 @@ pages directly if you prefer; `aomi-git status` just rolls both up.
 
 ### Requesting activation
 
-Post in the `#aomi-apps` Discord channel and tag `@platform-ops`. Include:
+You don't post manually anymore — `aomi-git` does it for you. Once CI is green
+and the release exists, from your source repo:
 
-- **Release tag:** `apps-<slug>-<short-commit>` (printed by `aomi-git deploy`,
-  also in your `.aomi/deployment.json`)
-- **Target environment:** `staging` for the first activation, `prod` later
-  after staging is verified
-- **Your GitHub handle** so we can confirm the activated app back to you
+```bash
+aomi-git activate --request
+```
 
-A `@platform-ops` member runs `aomi-git activate` against the target backend
-with the Krexa platform token (held by them), then confirms by linking your
-app at `https://staging-api.aomi.dev/api/control/apps/status`.
+This reads your `.aomi/deployment.json` and posts an **Activation requested**
+message — app, repo, **release tag**, and target tags — into the
+`✅-activation-requests` Discord channel, pinging the **@ops** role, so requests
+land in one place instead of scattered DMs. Preview it first without posting:
+
+```bash
+aomi-git activate --request --dry-run
+```
+
+A Krexa `@ops` member reads the release tag, mints an activation token **scoped
+to that exact release**, runs `aomi-git activate` against the target backend,
+then confirms your app at
+`https://staging-api.aomi.dev/api/control/apps/status`.
 
 ### What ops actually runs
 
+Ops mint a token scoped to your release tag
+(`admin-cli platforms mint-token --platform krexa --initial-release-tag <tag>`).
 If they have access to your source repo's `.aomi/deployment.json` (e.g. you
 handed them the directory or they checked out your branch), the whole
 command is a one-liner:
 
 ```bash
-AOMI_APP_ACTIVATION_TOKEN=<krexa-platform-token> \
+AOMI_APP_ACTIVATION_TOKEN=<the scoped activation token> \
 AOMI_BACKEND_URL=https://staging-api.aomi.dev \
   aomi-git activate
 ```
@@ -289,7 +300,7 @@ explicit:
 ```bash
 aomi-git activate apps-<slug>-<short-commit> \
   --backend https://staging-api.aomi.dev \
-  --activation-token <krexa-platform-token> \
+  --activation-token <the scoped activation token> \
   --platform krexa \
   --git aomi-labs/krexa-hosted-apps \
   --target-tag staging \
@@ -328,12 +339,16 @@ can't widen the scope on your behalf.
 
 ### Why activation is held by ops, not contributors
 
-- The activation token is the platform's commercial trust gate. Anyone holding
-  it can mint or replace any Krexa app on the backend.
+- Activation is the platform's commercial trust gate. Ops hold the tokens; you
+  request one with `aomi-git activate --request`.
+- Ops now mint a **per-contributor token pinned to your release tag** — it can
+  only activate that one release, so even if it leaked it couldn't touch any
+  other Krexa app. (A shared platform master still works as a fallback, but new
+  requests get a scoped token.)
 - Per ADR 0009 amended, the GitHub fetch token is **transient** — passed in
-  each activation request, never persisted in the database, never logged. Krexa
-  ops will ask you for a fresh PAT each activation; do not hand them a long-lived
-  shared secret.
+  each activation request, never persisted in the database, never logged. When
+  this repo goes private, Krexa ops will ask you for a fresh PAT each
+  activation; do not hand them a long-lived shared secret.
 
 ---
 
@@ -346,10 +361,11 @@ After your app is verified on staging:
    from this release).
 2. Re-run `aomi-git deploy` — this creates a new release tag (different
    source commit) carrying the wider declared scope.
-3. Post in `#aomi-apps` Discord, tag `@platform-ops` / Krexa ops, and ask
-   for activation against `https://api.aomi.dev`. Per the target-tag rule,
-   ops cannot promote your existing staging release to prod without this
-   re-deploy — the build's declared scope is the activation ceiling.
+3. Run `aomi-git activate --request` again — the new release tag posts to the
+   `✅-activation-requests` channel. Krexa ops mint a token for that tag and
+   activate against `https://api.aomi.dev`. Per the target-tag rule, ops cannot
+   promote your existing staging release to prod without this re-deploy — the
+   build's declared scope is the activation ceiling.
 
 Your app will not load on prod backends until step 3 — even though the row
 exists in the shared backend database, the subset check `target_tags ⊆
