@@ -124,7 +124,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-aomi-sdk   = "=0.1.21"          # match platform.json's required_sdk_version
+aomi-sdk   = "=3.0.0"          # match platform.json's required_sdk_version
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 ```
