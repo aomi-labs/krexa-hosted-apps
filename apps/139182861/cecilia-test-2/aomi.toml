@@ -1,0 +1,11 @@
+[app]
+name         = "cecilia-test-2"          # slug — kebab-case, becomes the release tag
+display_name = "Cecilia Test 2"          # human-readable
+platform     = "krexa"
+git          = "https://github.com/aomi-labs/krexa-hosted-apps"
+public       = true                     # visible to all backend users
+
+# Optional: pin which class of backend can load this release.
+# Omit to default to ["staging"] — your release will only load on staging
+# backends. Set to ["prod"] for the production-tier release once tested.
+# server_tags = ["staging"]

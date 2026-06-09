@@ -1,0 +1,26 @@
+[package]
+name    = "my-aomi-bots"
+version = "0.1.0"
+edition = "2024"
+
+# Aomi plugins are dynamically loaded by the backend — they MUST be cdylib.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Pin EXACTLY to platform.json's required_sdk_version. Bundle validation in CI
+# refuses any mismatch — even patch versions.
+aomi-sdk   = "=0.1.20"
+schemars   = "1"
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Blocking HTTP — Aomi tools run inside a sync FFI boundary, so no async runtime
+# inside the plugin. reqwest::blocking is the recommended pattern.
+reqwest    = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+
+# NOTE: signed /exchange calls (place/cancel orders) need an EIP-712 signature
+# over an Arbitrum (chain id 42161) domain. This scaffold deliberately stops
+# short of including k256/sha3/etc. — see the TODO in `src/client.rs` and the
+# Hyperliquid Python SDK for the exact action-hash protocol before wiring it
+# up. Add the deps when you implement it.
