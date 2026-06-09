@@ -100,6 +100,7 @@ jobs:
               --clobber
           else
             gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
               --title "$RELEASE_TAG" \
               --notes-file dist/release-notes.md \
               "$TARBALL" \
