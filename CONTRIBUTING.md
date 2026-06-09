@@ -1,51 +1,76 @@
 # Launching a Krexa Aomi App
 
-End-to-end guide for shipping a Krexa Aomi app into krexa-hosted-apps and getting it loaded on the Aomi runtime. Invite-only — if you weren't given write access by Krexa ops, you're in the wrong place.
+End-to-end guide for shipping a Krexa Aomi app through `krexa-hosted-apps` and
+getting it loaded on the Aomi runtime.
 
-1. **Author** your app in your own source repo: a Rust `cdylib` crate + `aomi.toml` (`platform = "krexa"`).
-2. **Deploy** with `aomi-git deploy` — stages your source into `apps/<slug>/` of a krexa-hosted-apps clone and pushes to `publish`.
-3. **CI** builds the cdylib and publishes a GitHub release tagged `apps-<slug>-<short-commit>`.
-4. **Request onboarding + activation** with `aomi-git request` — it posts your GitHub account, app, and email to the ops Discord channel and pings ops. Krexa ops grant repo access (if needed) and issue you a release-scoped activation token; once CI's release exists, `aomi-git activate` fetches + loads it.
+`krexa-hosted-apps` is a hosted partner release builder. The backend owns
+deployment records, platform `.aomi/deployment.json`, build targeting, and
+activation. This repo validates the backend-generated record and publishes
+release artifacts.
+
+1. **Author** your app in your own source repo: a Rust `cdylib` crate plus
+   `aomi.toml` with `platform = "krexa"`.
+2. **Connect** that source repo to Aomi: install the Aomi GitHub App and get
+   the resulting `app_source_id` from Krexa ops or the portal.
+3. **Deploy** with `aomi-build deploy`. The CLI sends a source-bound request to
+   the backend.
+4. **Backend staging** fetches your source through the GitHub App, writes
+   `apps/<installation-id>/<app>/.aomi/deployment.json`, and opens or updates a
+   platform PR in this repo.
+5. **Release-builder CI** validates the backend manifest, builds the cdylib,
+   and publishes release artifacts tagged
+   `apps-<installation-id>-<app>-<short-source-commit>`.
+6. **Activation** calls the backend. The backend resolves the requested PR,
+   branch, commit, or release tags against its deployment record and fetches the
+   desired artifacts.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor You
-    participant Src as your source repo
-    participant CLI as aomi-git
-    participant Repo as krexa-hosted-apps
-    participant CI as publish CI
-    participant Ops as Krexa ops
+    participant Src as source repo
+    participant CLI as aomi-build
     participant BE as Aomi backend
+    participant Repo as krexa-hosted-apps
+    participant CI as release-builder CI
+    participant RT as Aomi runtime
 
-    You->>Src: write aomi.toml + src/
-    You->>CLI: aomi-git deploy
-    CLI->>Repo: clone (cached), stage apps/<slug>/, commit, push
-    Repo->>CI: trigger
-    CI->>Repo: upload release apps-<slug>-<short-commit>
-    You->>Ops: aomi-git request (Discord ping)
-    Ops->>BE: issue release-scoped token + aomi-git activate
-    BE->>BE: fetch + validate + load
+    You->>Src: commit aomi.toml + Rust cdylib
+    You->>CLI: aomi-build deploy
+    CLI->>BE: POST /api/platforms/krexa/deploy
+    BE->>Src: fetch source via GitHub App app_source_id
+    BE->>Repo: push candidate branch + open/update PR
+    BE->>Repo: write apps/<installation-id>/<app>/.aomi/deployment.json
+    Repo->>CI: validate backend manifest + build release
+    CI->>Repo: upload release apps-<installation-id>-<app>-<short-commit>
+    You->>CLI: aomi-build activate
+    CLI->>BE: POST /api/platforms/krexa/apps/activate
+    BE->>Repo: fetch selected release artifact
+    BE->>RT: validate + load app
 ```
 
 ---
 
 ## Prerequisites
 
-- **Rust nightly** (the SDK builds on `2024` edition)
-- **`git`** on `PATH` — `aomi-git` shells out to it for the transit clone
-- **`gh` (GitHub CLI)** logged into an account that has been added as a
-  collaborator on `aomi-labs/krexa-hosted-apps`. Used implicitly: `git`'s
-  credential helper picks up the `gh auth` token when cloning the platform
-  repo.
-- **`aomi-git`** — the deploy CLI, shipped from the SDK:
+- **Rust stable** matching this repo's workflow toolchain.
+- **`git`** on `PATH`. `aomi-build` reads local git facts from your source repo.
+- **`aomi-build`**, shipped by the Aomi SDK:
 
   ```bash
   cargo install --git https://github.com/aomi-labs/aomi-sdk --features cli aomi-sdk
-  # binary lands at ~/.cargo/bin/aomi-git
+  # binary lands at ~/.cargo/bin/aomi-build
   ```
 
-You do NOT need the activation token to contribute. Krexa ops holds it.
+- **Connected source repo**. Install the Aomi GitHub App on the repo containing
+  your app and get the `app_source_id` for that install.
+- **Backend credentials** from Krexa ops:
+  - `AOMI_BACKEND_URL`, for example `https://staging-api.aomi.dev`
+  - `AOMI_APP_SOURCE_ID`, or pass `--app-source-id`
+  - `AOMI_APP_ACTIVATION_TOKEN`, or pass `--activation-token` to `activate`
+
+You do not need direct write access to `aomi-labs/krexa-hosted-apps` for the
+normal flow. The backend writes the platform PR through the Aomi GitHub App.
 
 ---
 
@@ -53,66 +78,35 @@ You do NOT need the activation token to contribute. Krexa ops holds it.
 
 ```
 my-krexa-app/
-├── aomi.toml
-├── Cargo.toml
-├── .gitignore       (must include .aomi/, target/, and Cargo.lock)
-└── src/lib.rs       (dyn_aomi_app! registers your tools)
+|-- aomi.toml
+|-- Cargo.toml
+|-- .gitignore       (include .aomi/, target/, and Cargo.lock)
+`-- src/
+    `-- lib.rs       (dyn_aomi_app! registers your tools)
 ```
 
 ### `aomi.toml`
 
 ```toml
 [app]
-name         = "my-krexa-app"           # slug — kebab-case, becomes the release tag
+name         = "my-krexa-app"
 display_name = "My Krexa App"
-platform     = "krexa"                  # MUST be "krexa" for this repo
-git          = "https://github.com/aomi-labs/krexa-hosted-apps"
-public       = false                    # krexa apps are private by default on the backend
+platform     = "krexa"
+public       = false
 
-# Optional: pin which backend class can load this release.
-# Omit to default to ["staging"]. Set to ["prod"] only after staging is verified.
+# Optional: choose which backend class can load this app.
+# Omit to default to ["staging"]. Add "prod" only after staging is verified.
 # server_tags = ["staging"]
 ```
 
-#### About `access_token`
-
-`aomi-git` works by pushing your code into a managed platform repository under
-the `aomi-labs` GitHub org — for Krexa, that's `aomi-labs/krexa-hosted-apps`
-(this repo). At activation time, the Aomi backend **fetches your release
-tarball from that platform repo on GitHub**. So whether you need an
-`access_token` depends on one question: is the platform repo public or
-private on GitHub?
-
-- **Today, `krexa-hosted-apps` is public on GitHub.** The backend can fetch
-  your release tarball anonymously. You can omit the `access_token` field
-  from your `aomi.toml`.
-- **If/when this repo is made private** — which is the eventual B2B intent —
-  the backend will need a GitHub PAT with read access to releases. You'd
-  declare it in `aomi.toml` as a reference to an env var, never the token
-  itself. Literal tokens are rejected at parse so a committed config can
-  never leak a secret:
-
-  ```toml
-  # add when krexa-hosted-apps goes private — currently public, skip
-  access_token = "$KREXA_GH_READ_TOKEN"   # ✅ env-var ref — resolved at deploy time
-  access_token = "ghp_xxxxxxx"            # ❌ rejected at parse — never commit secrets
-  ```
-
-Per [ADR 0009 amended](https://github.com/aomi-labs/aomi-launch-my-agent),
-the fetch token is **transient**: passed once in the activation request body,
-used once by the backend to download the tarball, never persisted, never
-logged, never written to disk. When this repo does go private, Krexa ops
-will ask you for a fresh PAT each activation rather than holding one
-long-lived shared secret.
-
-> Note: this `access_token` (a GitHub PAT) is a **separate concept** from the
-> Krexa platform's **activation token**, which authorizes writes against the
-> Aomi backend. The activation token is held by Krexa ops — you never see it.
+Do not set the old `git` or `access_token` fields. Current `aomi-build`
+validates `aomi.toml` strictly and will reject unknown fields. Source access is
+bound by `app_source_id`, not by fields in the app manifest.
 
 ### `Cargo.toml`
 
-Pin the SDK to the version this repo's CI expects. Check `platform.json`
-in this repo for the current `required_sdk_version`:
+Pin the SDK to the version this repo's CI expects. Check
+[`platform.json`](./platform.json) for the current `required_sdk_version`:
 
 ```toml
 [package]
@@ -130,252 +124,265 @@ serde_json = "1"
 ```
 
 If your app needs HMAC/signing helpers, copy the small functions inline rather
-than depending on `aomi-ext` — it's not on crates.io yet and a path dep from
-this repo won't resolve. See `apps/my-krexa-bot/` for a reference layout.
+than depending on `aomi-ext` unless that crate is available to your build.
 
 ---
 
-## 2. Sanity check: build + dry-run
-
-```bash
-cargo check                    # make sure it compiles
-```
-
-Then dry-run against staging. Dry-run does the offline plan **and** the online
-preflight (backend reachability, branch contract, server-tag subset check) —
-it's the single "show me what would happen" command:
-
-```bash
-# only export KREXA_GH_READ_TOKEN if your aomi.toml declares
-# access_token = "$KREXA_GH_READ_TOKEN" (currently optional — see above)
-AOMI_BACKEND_URL=https://staging-api.aomi.dev \
-  aomi-git deploy --dry-run
-```
-
-You should see all four pipeline stages pass:
-
-```text
-Preflight
-  [ok]   workspace git_clean
-  [ok]   manifest  platform_declared, git_declared  ·  defaulted=true server_tags=[staging]
-  [ok]   platform  platform_resolved, branch_matches_contract, git_url_matches_platform  ·  deployment_branch=publish github_repo=aomi-labs/krexa-hosted-apps name=krexa
-  [ok]   backend   backend_reachable, server_tags_match
-```
-
-The same plan also lands in `.aomi/deployment.json` next to your `aomi.toml`
-(read it if you need machine-readable detail or want to inspect resolved
-facts).
-
-If any stage fails, fix the underlying issue (usually your `aomi.toml`)
-before running deploy. Warnings (`[warn]`) are advisory and don't block —
-a common one is `git_url_matches_platform` when you're deploying from a fork.
-
----
-
-## 3. Deploy
+## 2. Build locally
 
 From your source repo:
 
 ```bash
-aomi-git deploy
+cargo check
+cargo test
+cargo build --release
 ```
 
-That's it. `aomi-git` manages a transit clone of `krexa-hosted-apps` for you
-under `~/.aomi/transit/aomi-labs-krexa-hosted-apps/` (you never touch it —
-it's a CLI-managed cache). On first deploy it clones; on subsequent deploys
-it fetches and resets. Auth flows through your normal `git` credential
-helper — if you've been added as a collaborator and `gh auth login` works,
-this works.
-
-This:
-
-1. Snapshots your source tree into `apps/<slug>/` in the transit clone
-2. Writes the staging manifest CI expects
-3. Commits and pushes to `publish`
-4. The `publish-apps` workflow auto-fires:
-   - validates the staged source against the manifest
-   - runs `cargo build --release` for the cdylib
-   - uploads a release tarball under `apps-<slug>-<short-source-commit>`
-
-Watch CI at <https://github.com/aomi-labs/krexa-hosted-apps/actions>.
-
-> `deploy` does not activate. It only pushes source and triggers CI.
-> Activation is a separate step that must run *after* CI uploads the release —
-> Krexa ops (or you, once you hold a token) run `aomi-git activate` once the
-> release tag exists. Setting `AOMI_APP_ACTIVATION_TOKEN` alone no longer
-> triggers activation on `deploy`; pass `aomi-git deploy --activate` to
-> explicitly chain it (only useful when the release already exists).
-
-### Escape hatch: `--platform-dir`
-
-If you need to manage the clone yourself (air-gapped CI, custom auth, or
-debugging the staged tree before push), pass a directory you control:
-
-```bash
-aomi-git deploy --platform-dir /path/to/your/krexa-hosted-apps-clone
-```
-
-This skips the transit cache entirely. You're responsible for keeping that
-clone in sync with `origin/publish`. Most contributors should never need this.
+The platform CI does the final Linux release build. `aomi-build compile` is for
+SDK-style workspaces with an `apps/` directory, so most standalone source repos
+should use plain Cargo locally.
 
 ---
 
-## 4. Activation handoff
+## 3. Request onboarding if needed
 
-Once your CI run is green and the GitHub release exists, hand off to Krexa
-platform ops.
-
-### When is CI done?
-
-Run `aomi-git status` from your source repo. It reads your
-`.aomi/deployment.json` and polls GitHub for you, reporting both signals in
-one place:
-
-```
-$ aomi-git status
-Publication status
-  repo          : aomi-labs/krexa-hosted-apps
-  release_tag   : apps-my-krexa-bot-abc1234
-  branch        : publish
-  local state   : pushed=true deployed=true activated=false
-  ci            : ⏳ running — publish-apps
-                  https://github.com/aomi-labs/krexa-hosted-apps/actions/runs/...
-  release       : pending (not built yet)
-```
-
-When `ci` is green and `release` shows **✓ published … ready to activate**,
-you're ready to request activation. (`aomi-git status apps-<slug>-<commit>`
-checks a specific tag; otherwise it uses the latest deploy's tag.)
-
-Because this repo is private (or will be), `aomi-git status` needs read
-access to its Actions/releases — pass `--access-token $YOUR_PAT` (the same
-env-var ref form as `aomi.toml`'s `access_token`), or set `[app].access_token`
-so it's picked up automatically. You can still watch the Actions and Releases
-pages directly if you prefer; `aomi-git status` just rolls both up.
-
-### Requesting onboarding + activation
-
-You don't DM ops manually — `aomi-git request` posts the ask for you. Run it
-once to get repo access and an activation token (you can do this even before
-your first deploy):
+If you do not yet have an `app_source_id` or platform/app token, ask through the
+CLI so ops receives the app, GitHub account, email, and source repo in one
+place:
 
 ```bash
-aomi-git request --email you@example.com --git-account your-gh-handle
-```
-
-This posts an **onboarding/activation request** — your GitHub account, app, and
-email — into the `✅-activation-requests` Discord channel, pinging the **@ops**
-role, so asks land in one place instead of scattered DMs. Preview it first
-without posting:
-
-```bash
-aomi-git request --email you@example.com --git-account your-gh-handle --dry-run
-```
-
-A Krexa `@ops` member invites your GitHub account to `aomi-labs/krexa-hosted-apps`
-(if needed) and issues you a release-scoped activation token out-of-band — the
-token is **never** part of the request. Once your CI release exists, ops (or
-you, with the token) run `aomi-git activate` against the target backend, then
-confirm your app at `https://staging-api.aomi.dev/api/control/apps/status`.
-
-### What ops actually runs
-
-Ops mint a release-pinned token for your release tag (`POST
-/api/admin/platforms/krexa/activation-tokens` with the release tag, or the
-equivalent admin CLI).
-If they have access to your source repo's `.aomi/deployment.json` (e.g. you
-handed them the directory or they checked out your branch), the whole
-command is a one-liner:
-
-```bash
-AOMI_APP_ACTIVATION_TOKEN=<the scoped activation token> \
-AOMI_BACKEND_URL=https://staging-api.aomi.dev \
-  aomi-git activate
-```
-
-`aomi-git activate` reads `.aomi/deployment.json` (left there by your
-`aomi-git deploy`) and pulls release tag, platform, source repo, source
-provenance, display name, visibility, **and target tags** from it. The
-target tags come from the build's `server_tags` (see "How target tags work"
-below) — ops doesn't normally pass `--target-tag` at all.
-
-The common Krexa B2B case is the opposite: ops works from a separate
-machine and just receives a release tag from you. Then every field is
-explicit:
-
-```bash
-aomi-git activate apps-<slug>-<short-commit> \
-  --backend https://staging-api.aomi.dev \
-  --activation-token <the scoped activation token> \
+aomi-build request \
   --platform krexa \
-  --source-repo aomi-labs/krexa-hosted-apps \
-  --target-tag staging \
-  --visibility private
+  --email you@example.com \
+  --git-account your-gh-handle
 ```
 
-…and confirms your app appears in
-`https://staging-api.aomi.dev/api/control/apps/status`.
+Preview the Discord payload without posting:
 
-> **GitHub fetch auth.** Today `krexa-hosted-apps` is public on GitHub, so
-> the backend fetches the release tarball unauthenticated. If/when the
-> repo goes private, ops will also need a one-shot GitHub PAT with read
-> access (per ADR 0009 amended: passed in the activation request body,
-> used once, never persisted, never logged) — passed via `--access-token
-> "$ENV_NAME"` (matching the same `$ENV_NAME` form used in `aomi.toml`).
+```bash
+aomi-build request \
+  --platform krexa \
+  --email you@example.com \
+  --git-account your-gh-handle \
+  --dry-run
+```
 
-### How target tags work
-
-`aomi.toml [app].server_tags` is the **build's declared scope** — the set of
-backend tiers you (the contributor) signed off on shipping to. `aomi-git
-deploy` copies this into `.aomi/deployment.json`, where it travels with the
-release.
-
-At activate time ops can **narrow** but cannot **widen**:
-
-- If you declared `server_tags = ["staging"]` in aomi.toml, ops can only
-  activate to staging. An attempt to widen to prod is rejected with a
-  multi-line error pointing back at your source repo.
-- If you declared `server_tags = ["staging", "prod"]`, ops can activate to
-  either (or both). They'll typically start with `--target-tag staging`,
-  verify, then re-run with `--target-tag prod`.
-
-This makes your word at build time a contract, not advisory. If you want
-your app on prod, you have to say so in your aomi.toml first — Krexa ops
-can't widen the scope on your behalf.
-
-### Why activation is held by ops, not contributors
-
-- Activation is the platform's commercial trust gate. Ops hold the tokens; you
-  request one with `aomi-git request`.
-- Ops now mint a **per-contributor token pinned to your release tag** — it can
-  only activate that one release, so even if it leaked it couldn't touch any
-  other Krexa app. (A shared platform master still works as a fallback, but new
-  requests get a scoped token.)
-- Per ADR 0009 amended, the GitHub fetch token is **transient** — passed in
-  each activation request, never persisted in the database, never logged. When
-  this repo goes private, Krexa ops will ask you for a fresh PAT each
-  activation; do not hand them a long-lived shared secret.
+The request does not include an activation token. Krexa ops issues credentials
+out of band after validating the source repo and app ownership.
 
 ---
 
-## 5. Promoting staging → prod
+## 4. Deploy
 
-After your app is verified on staging:
+Run deploy from your source repo after committing the app source:
 
-1. Edit `aomi.toml`: change `server_tags = ["staging"]` to either
-   `["prod"]` (prod-only) or `["staging", "prod"]` (both tiers loadable
-   from this release).
-2. Re-run `aomi-git deploy` — this creates a new release tag (different
-   source commit) carrying the wider declared scope.
-3. Ask Krexa ops to activate the new release on prod — or run `aomi-git
-   activate --target-tag prod` yourself if you hold a token for it — against
-   `https://api.aomi.dev`. Per the target-tag rule, ops cannot promote your
-   existing staging release to prod without this re-deploy — the build's
-   declared scope is the activation ceiling.
+```bash
+export AOMI_BACKEND_URL=https://staging-api.aomi.dev
+export AOMI_APP_SOURCE_ID=<app_source_id from Krexa ops or portal>
+export AOMI_APP_ACTIVATION_TOKEN=<token from Krexa ops>
 
-Your app will not load on prod backends until step 3 — even though the row
-exists in the shared backend database, the subset check `target_tags ⊆
-AOMI_SERVER_TAGS` is enforced at activate time.
+aomi-build deploy \
+  --platform krexa \
+  --aomi-toml aomi.toml
+```
+
+Useful variants:
+
+```bash
+# Show the backend request. If backend credentials are present, the backend also
+# resolves and validates the plan without opening a PR.
+aomi-build deploy --platform krexa --aomi-toml aomi.toml --dry-run
+
+# Deploy a branch instead of local HEAD.
+aomi-build deploy --platform krexa --branch publish-ready --aomi-toml aomi.toml
+
+# Deploy multiple app configs from one source repo.
+aomi-build deploy \
+  --platform krexa \
+  --aomi-toml apps/foo/aomi.toml \
+  --aomi-toml apps/bar/aomi.toml
+```
+
+`deploy` sends `POST /api/platforms/krexa/deploy` with:
+
+```json
+{
+  "app_source_id": 123,
+  "source_ref": { "kind": "commit", "value": "<sha>" },
+  "aomi_toml_paths": ["aomi.toml"],
+  "dry_run": false
+}
+```
+
+The backend deploy handler does the platform work:
+
+1. Resolves the selected source ref to an exact commit.
+2. Fetches the source repo archive through the GitHub App.
+3. Parses each requested `aomi.toml`.
+4. Copies app source into `apps/<installation-id>/<app>/`.
+5. Generates `apps/<installation-id>/<app>/.aomi/deployment.json` from the
+   backend deploy record.
+6. Pushes a candidate branch for review/build.
+7. Opens or updates a platform PR against `publish`.
+
+The generated platform `deployment.json` records the backend's view of the
+release: app metadata, source repository, source commit, platform, staged app
+path, release tag, build target, and file hashes. CI validates this file, but
+the backend owns it.
+
+`aomi-build` may also maintain local `.aomi/` state in your source repo so
+`status` and `activate` can find the last backend target. That local file is
+not the platform contract.
+
+Watch the platform PR and CI from the `pr_url` in local state, or from:
+<https://github.com/aomi-labs/krexa-hosted-apps/actions>
+
+`deploy` does not activate. It opens or updates the platform PR and lets CI
+build the release artifact. Activate only after the artifact exists.
+
+---
+
+## 5. Release-builder CI
+
+This repo is responsible for building artifacts from backend-staged source. CI
+uses `publish` as the baseline, validates changed app directories under
+`apps/<installation-id>/<app>/`, and checks each backend-generated
+`.aomi/deployment.json`.
+
+For each valid app, CI:
+
+1. Confirms the staged app path matches `apps/<installation-id>/<app>`.
+2. Confirms `deployment.json.target.release_tag` matches
+   `apps-<installation-id>-<app>-<short-source-commit>`.
+3. Confirms source commit, repository, platform, target triple, file hashes,
+   and file byte counts.
+4. Builds the app as a Rust `cdylib`.
+5. Uploads:
+   - `aomi-plugins-<release-tag>-<target>.tar.gz`
+   - `manifest.json`
+   - `aomi-release.json`
+
+This repo builds and publishes artifacts. It does not decide which artifacts
+are activated.
+
+---
+
+## 6. Check status
+
+From your source repo:
+
+```bash
+aomi-build status --backend https://staging-api.aomi.dev
+```
+
+`status` uses local deploy state plus backend runtime state. Before activation,
+the app may show as not registered or not loaded; that is expected while the
+platform PR is still building or before activation runs.
+
+Use JSON when wiring this into automation:
+
+```bash
+aomi-build status --backend https://staging-api.aomi.dev --json
+```
+
+---
+
+## 7. Activate
+
+Activation is backend-owned. The activation endpoint is:
+
+```
+POST /api/platforms/:platform/apps/activate
+```
+
+`aomi-build activate` calls that endpoint. Depending on the request, the
+backend can resolve one of these target types:
+
+- `platform_pr`
+- `platform_branch`
+- `platform_commit`
+- `release_tags`
+
+For PR or branch activation, the backend verifies the platform target, checks
+CI state, can fast-forward the live branch when required, and derives app paths
+and release tags from the backend candidate branch:
+
+```
+apps/<installation-id>/<app>
+apps-<installation-id>-<app>-<short-source-commit>
+```
+
+For commit or explicit release-tag activation, the release tags must be
+provided or derivable from the backend activation target.
+
+After the release tag is resolved, the backend fetches the selected GitHub
+release artifact, validates it against the expected SDK version, target, and
+hashes, then loads the app.
+
+Run activation after the platform PR is ready and CI has produced the release
+artifact:
+
+```bash
+export AOMI_BACKEND_URL=https://staging-api.aomi.dev
+export AOMI_APP_ACTIVATION_TOKEN=<token from Krexa ops>
+
+aomi-build activate --target-tag staging
+```
+
+Explicit target forms:
+
+```bash
+aomi-build activate \
+  --pr https://github.com/aomi-labs/krexa-hosted-apps/pull/9 \
+  --target-tag staging
+
+aomi-build activate \
+  --release-tag apps-123456-my-krexa-app-abc1234 \
+  --platform krexa \
+  --target-tag staging
+```
+
+Confirm with:
+
+```bash
+aomi-build status --backend https://staging-api.aomi.dev
+```
+
+---
+
+## Target tags
+
+`aomi.toml [app].server_tags` is the build's declared load scope. If omitted,
+the backend defaults it to `["staging"]`.
+
+At activate time ops can narrow but cannot widen:
+
+- If `server_tags = ["staging"]`, activation to prod is rejected.
+- If `server_tags = ["staging", "prod"]`, activate staging first, then prod
+  after staging is verified.
+
+Krexa ops cannot promote a staging-only build to prod on your behalf. The
+source commit must declare the wider scope before deployment.
+
+---
+
+## Promoting staging to prod
+
+After staging is verified:
+
+1. Edit `aomi.toml` and set `server_tags = ["staging", "prod"]` or
+   `server_tags = ["prod"]`.
+2. Commit the change in your source repo.
+3. Re-run `aomi-build deploy --platform krexa --aomi-toml aomi.toml`.
+4. Wait for the new platform PR/CI release.
+5. Activate against production:
+
+```bash
+export AOMI_BACKEND_URL=https://api.aomi.dev
+export AOMI_APP_ACTIVATION_TOKEN=<prod-capable token from Krexa ops>
+
+aomi-build activate --target-tag prod
+```
 
 ---
 
@@ -383,28 +390,29 @@ AOMI_SERVER_TAGS` is enforced at activate time.
 
 | Error | Cause | Fix |
 |---|---|---|
-| `git tree is dirty` | uncommitted files in your source repo (often `.aomi/deployment.json` from a previous dry-run) | commit, or add `.aomi/`, `target/`, and `Cargo.lock` to `.gitignore` |
-| `aomi.toml [app].access_token must be \`$ENV_VAR_NAME\`` | you put a literal token in `aomi.toml` | use `"$ENV_VAR_NAME"`; never commit secrets |
-| `env var \`KREXA_GH_READ_TOKEN\` is not set` | aomi.toml references a token env var that isn't exported | `export KREXA_GH_READ_TOKEN=ghp_...` before running |
-| `git clone ... exited 128` | `aomi-git` couldn't fetch the platform repo into its transit cache (auth or network) | `gh auth login`; confirm you're a collaborator on `aomi-labs/krexa-hosted-apps`; if still wedged, `rm -rf ~/.aomi/transit/aomi-labs-krexa-hosted-apps/` and retry |
-| `failed to refresh transit clone` | transit cache got into a weird state (interrupted clone, manual edits) | `rm -rf ~/.aomi/transit/aomi-labs-krexa-hosted-apps/` and re-run `aomi-git deploy` |
-| `... returned 409` — `collides with an already-installed plugin` | another app already uses your plugin **name** on the backend (the runtime plugin namespace is global today) | rename your app/plugin and re-deploy |
-| `... returned 409` — target tags | `target_tags` don't subset the backend's `AOMI_SERVER_TAGS` | match your env to the backend you're activating against |
-| `... returned 422` — `incompatible` / `rebuild` | the built bundle is invalid for this backend (e.g. an SDK mismatch baked into the release) | rebuild against the right `required_sdk_version` and re-deploy |
-| `... returned 502` | release tarball doesn't exist yet (CI race) or the backend can't reach GitHub | retry after CI finishes |
-| `sdk_version mismatch` | your `aomi-sdk` Cargo dep doesn't match `platform.json`'s `required_sdk_version` | pin to the right version |
+| `deploy needs --app-source-id` | No connected source id was provided | Install the Aomi GitHub App on your source repo and pass `--app-source-id`, or export `AOMI_APP_SOURCE_ID` |
+| `deploy requires an activation token via AOMI_APP_ACTIVATION_TOKEN` | Deploy calls the backend without a platform/app token | Get the token from Krexa ops and export `AOMI_APP_ACTIVATION_TOKEN` |
+| `unknown field \`git\`` or `unknown field \`access_token\`` | Your `aomi.toml` still uses old deployment fields | Remove those fields; source access is bound by `app_source_id` now |
+| `candidate app dir must be apps/<installation-id>/<app>` | Staged path does not match the backend contract | Redeploy through the backend |
+| `deployment manifest target.release_tag must be ...` | Manifest release tag does not match the backend target | Redeploy through the backend |
+| `no tracked aomi.toml found` | The config file is untracked or in a path the CLI cannot discover | Commit `aomi.toml`, or pass `--aomi-toml <path>` |
+| `no .aomi/deployment.json` | You ran `status` or `activate` before a successful deploy | Run `aomi-build deploy` first, from the same source repo |
+| `pass only one activation target` | Multiple target flags were passed | Use exactly one of `--target`, `--pr`, `--branch`, `--commit`, or `--release-tag` |
+| App is active but not loaded | Backend registered the app row but runtime load failed | Check SDK version, release artifact, and backend logs; rebuild against `platform.json`'s `required_sdk_version` |
+| `sdk_version mismatch` | Your `aomi-sdk` dependency does not match `platform.json` | Pin `aomi-sdk` to the required version and redeploy |
 
 ## Quick reference
 
 | Where | What |
 |---|---|
-| `https://staging-api.aomi.dev` | staging backend — first stop for any new app |
-| `https://api.aomi.dev` | production backend — after staging is green |
-| `/api/control/platforms` | recognized platforms (should include `krexa`) |
-| `/api/control/server-tags` | what the backend matches (`[staging]` or `[prod]`) |
-| `/api/control/apps/status` | full registry — your app should show `loaded: true` after activation |
-| `platform.json` | CI contract: `required_sdk_version`, target, etc. |
+| `https://staging-api.aomi.dev` | staging backend, first stop for any new app |
+| `https://api.aomi.dev` | production backend, after staging is green |
+| `POST /api/platforms/:platform/deploy` | backend-owned source fetch, staging, and manifest generation |
+| `POST /api/platforms/:platform/apps/activate` | backend-owned artifact resolution and activation |
+| `/api/control/apps/status` | runtime registry status; app should show `loaded: true` after activation |
+| local `.aomi/deployment.json` | CLI deploy state in your source repo |
+| platform `.aomi/deployment.json` | backend-generated release manifest in `apps/<installation-id>/<app>/` |
+| `platform.json` | static release-builder config |
 
-For the underlying contract see ADR 0004, 0009 (amended), and 0010 in the
-[aomi-launch-my-agent](https://github.com/aomi-labs/aomi-launch-my-agent)
-repo.
+For command details, see
+[`aomi-build`](https://github.com/aomi-labs/aomi-sdk/blob/main/docs/aomi-build.md).
