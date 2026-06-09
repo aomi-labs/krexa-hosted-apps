@@ -252,7 +252,7 @@ uses `publish` as the baseline, validates changed app directories under
 For each valid app, CI:
 
 1. Confirms the staged app path matches `apps/<installation-id>/<app>`.
-2. Confirms `deployment.json.target.release_tag` matches
+2. Confirms the app record release tag matches
    `apps-<installation-id>-<app>-<short-source-commit>`.
 3. Confirms source commit, repository, platform, target triple, file hashes,
    and file byte counts.
@@ -394,7 +394,7 @@ aomi-build activate --target-tag prod
 | `deploy requires an activation token via AOMI_APP_ACTIVATION_TOKEN` | Deploy calls the backend without a platform/app token | Get the token from Krexa ops and export `AOMI_APP_ACTIVATION_TOKEN` |
 | `unknown field \`git\`` or `unknown field \`access_token\`` | Your `aomi.toml` still uses old deployment fields | Remove those fields; source access is bound by `app_source_id` now |
 | `candidate app dir must be apps/<installation-id>/<app>` | Staged path does not match the backend contract | Redeploy through the backend |
-| `deployment manifest target.release_tag must be ...` | Manifest release tag does not match the backend target | Redeploy through the backend |
+| `deployment manifest release_tag must be ...` | Manifest release tag does not match the backend target | Redeploy through the backend |
 | `no tracked aomi.toml found` | The config file is untracked or in a path the CLI cannot discover | Commit `aomi.toml`, or pass `--aomi-toml <path>` |
 | `no .aomi/deployment.json` | You ran `status` or `activate` before a successful deploy | Run `aomi-build deploy` first, from the same source repo |
 | `pass only one activation target` | Multiple target flags were passed | Use exactly one of `--target`, `--pr`, `--branch`, `--commit`, or `--release-tag` |

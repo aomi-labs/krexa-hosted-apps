@@ -143,13 +143,19 @@ def validate_platform_descriptor(descriptor: dict[str, Any]) -> None:
         fail("release_tag_convention must contain {app_slug} and {short_commit}")
 
 
-def expected_release_tag(descriptor: dict[str, Any], app_slug: str, source_commit: str) -> str:
+def expected_release_tag(
+    descriptor: dict[str, Any],
+    app_slug: str,
+    source_commit: str,
+    installation_id: str | None,
+) -> str:
     short_commit = source_commit[:12]
-    return (
-        descriptor["release_tag_convention"]
-        .replace("{app_slug}", app_slug)
-        .replace("{short_commit}", short_commit)
-    )
+    convention = descriptor["release_tag_convention"]
+    if "{installation_id}" in convention:
+        if not installation_id:
+            fail("release_tag_convention requires installation_id")
+        convention = convention.replace("{installation_id}", installation_id)
+    return convention.replace("{app_slug}", app_slug).replace("{short_commit}", short_commit)
 
 
 def deployment_app_slug(deployment: dict[str, Any]) -> str:
@@ -169,6 +175,8 @@ def app_dir_from_path(path: str, prefix: str) -> str | None:
     if not normalized.startswith(prefix_with_slash):
         return None
     parts = normalized.split("/")
+    if len(parts) >= 3 and parts[1].isdigit() and parts[2]:
+        return f"{clean_prefix}/{parts[1]}/{parts[2]}"
     if len(parts) < 2 or not parts[1]:
         return None
     return f"{clean_prefix}/{parts[1]}"
@@ -355,53 +363,112 @@ def validate_runtime_manifest(manifest: dict[str, Any], sdk_version: str) -> str
     return manifest["name"]
 
 
+def app_dir_context(app_dir: pathlib.Path, descriptor: dict[str, Any]) -> dict[str, str | None]:
+    prefix = descriptor["app_path_prefix"].strip("/")
+    parts = app_dir.relative_to(REPO_ROOT).parts
+    if len(parts) >= 3 and parts[0] == prefix and parts[1].isdigit():
+        return {
+            "installation_id": parts[1],
+            "app_slug": parts[2],
+            "app_path": f"{prefix}/{parts[1]}/{parts[2]}",
+        }
+    if len(parts) >= 2 and parts[0] == prefix:
+        return {
+            "installation_id": None,
+            "app_slug": parts[1],
+            "app_path": f"{prefix}/{parts[1]}",
+        }
+    fail(f"app directory must be under {prefix}/, got {relpath(app_dir)}")
+
+
+def deployment_app_record(
+    stage: dict[str, Any], app_slug: str, expected_app_path: str
+) -> dict[str, Any] | None:
+    platform = stage.get("platform")
+    apps = platform.get("apps") if isinstance(platform, dict) else None
+    if apps is None:
+        return None
+    if not isinstance(apps, list):
+        fail("deployment manifest platform.apps must be an array")
+    matches = [
+        app
+        for app in apps
+        if isinstance(app, dict)
+        and str(app.get("name", "")).lower() == app_slug
+        and app.get("path") == expected_app_path
+    ]
+    if len(matches) != 1:
+        fail(f"deployment manifest must contain one platform.apps entry for {expected_app_path}")
+    return matches[0]
+
+
 def validate_deployment_manifest(
     stage: dict[str, Any],
     descriptor: dict[str, Any],
     app_dir: pathlib.Path,
     *,
     allow_fixture_app: bool,
-) -> None:
+) -> dict[str, Any]:
+    context = app_dir_context(app_dir, descriptor)
+    app_slug = str(context["app_slug"])
+    installation_id = context["installation_id"]
+    expected_app_path = str(context["app_path"])
+
     platform = stage.get("platform")
     if not isinstance(platform, dict):
         fail("deployment manifest platform must be an object")
-    if platform.get("name") != descriptor["name"]:
-        fail(f"deployment manifest platform.name must be {descriptor['name']}")
-    github_repo = platform.get("github_repo")
+    platform_name = platform.get("platform") or platform.get("name")
+    if platform_name != descriptor["name"]:
+        fail(f"deployment manifest platform must be {descriptor['name']}")
+    github_repo = platform.get("repository") or platform.get("github_repo")
     if not isinstance(github_repo, str) or normalize_github_repo(github_repo) != normalize_github_repo(
         descriptor["source_repo"]
     ):
-        fail(f"deployment manifest platform.github_repo must resolve to {descriptor['source_repo']}")
+        fail(f"deployment manifest platform repository must resolve to {descriptor['source_repo']}")
 
     source = stage.get("source")
-    target = stage.get("target")
-    files = stage.get("files")
-    if not isinstance(source, dict) or not isinstance(target, dict):
-        fail("deployment manifest must contain source and target objects")
+    if not isinstance(source, dict):
+        fail("deployment manifest must contain a source object")
+    manifest_installation_id = source.get("installation_id")
+    if installation_id and str(manifest_installation_id) != installation_id:
+        fail(f"deployment manifest source.installation_id must be {installation_id}")
+
+    app_record = deployment_app_record(stage, app_slug, expected_app_path)
+    if app_record is None:
+        target_obj = stage.get("target")
+        if not isinstance(target_obj, dict):
+            fail("deployment manifest must contain a target object")
+        if deployment_app_slug(stage) != app_slug:
+            fail(f"deployment manifest app.name must be {app_slug}")
+        source_commit = source.get("commit")
+        app_path = target_obj.get("app_path")
+        release_tag = target_obj.get("release_tag")
+        files = stage.get("files")
+        target = target_obj.get("target") or descriptor["default_target"]
+        branch = target_obj.get("branch") or platform.get("deployment_branch") or descriptor["publish_branch"]
+    else:
+        source_commit = source.get("commit_hash")
+        app_path = app_record.get("path")
+        release_tag = app_record.get("release_tag")
+        files = app_record.get("files")
+        target = app_record.get("target") or descriptor["default_target"]
+        branch = platform.get("source_branch") or platform.get("deploy_branch") or descriptor["publish_branch"]
+
     if not isinstance(files, list) or not files:
         fail("deployment manifest files must be a non-empty array")
-
-    app_slug = deployment_app_slug(stage)
-    source_commit = source.get("commit")
     if not isinstance(source_commit, str) or not COMMIT_RE.match(source_commit):
-        fail("deployment manifest source.commit must be a 12 to 40 character lowercase hex commit")
+        fail("deployment manifest source commit must be a 12 to 40 character lowercase hex commit")
 
-    expected_app_path = f"{descriptor['app_path_prefix'].strip('/')}/{app_slug}"
-    if target.get("app_path") != expected_app_path:
-        fail(f"deployment manifest target.app_path must be {expected_app_path}")
+    if app_path != expected_app_path:
+        fail(f"deployment manifest app path must be {expected_app_path}")
     if not allow_fixture_app and relpath(app_dir) != expected_app_path:
         fail(f"app directory must be {expected_app_path}")
-    # Only the release-tag check is load-bearing here: it catches drift
-    # between aomi-git's tag-emission logic and platform.json's
-    # release_tag_convention. The other deployment fields are either
-    # descriptor echoes or runtime activation state and are not worth coupling
-    # this CI to.
-    expected_tag = expected_release_tag(descriptor, app_slug, source_commit)
-    actual_tag = target.get("release_tag")
-    if actual_tag != expected_tag:
+
+    expected_tag = expected_release_tag(descriptor, app_slug, source_commit, installation_id)
+    if release_tag != expected_tag:
         fail(
-            "deployment manifest target.release_tag does not match descriptor convention: "
-            f"{actual_tag!r} != {expected_tag!r}"
+            "deployment manifest release_tag does not match descriptor convention: "
+            f"{release_tag!r} != {expected_tag!r}"
         )
 
     expected_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
@@ -428,6 +495,17 @@ def validate_deployment_manifest(
             fail(f"staged file sha256 mismatch for {rel}: {sha} != {expected_sha}")
         if byte_count != path.stat().st_size:
             fail(f"staged file byte count mismatch for {rel}")
+
+    return {
+        "app_slug": app_slug,
+        "installation_id": installation_id,
+        "app_path": expected_app_path,
+        "source": source,
+        "source_commit": source_commit,
+        "release_tag": release_tag,
+        "target": target,
+        "branch": branch,
+    }
 
 
 def validate_branch(descriptor: dict[str, Any], allow_non_publish_branch: bool) -> None:
@@ -510,12 +588,14 @@ def build_bundle(args: argparse.Namespace) -> None:
     ensure_clean_app(app_dir, args.allow_dirty)
     stage_path = app_dir / ".aomi" / "deployment.json"
     stage = load_json(stage_path)
-    validate_deployment_manifest(stage, descriptor, app_dir, allow_fixture_app=args.allow_fixture_app)
+    stage_info = validate_deployment_manifest(
+        stage, descriptor, app_dir, allow_fixture_app=args.allow_fixture_app
+    )
 
-    app_slug = deployment_app_slug(stage)
-    source_commit = stage["source"]["commit"]
-    release_tag = stage["target"]["release_tag"]
-    target = args.target or descriptor["default_target"]
+    app_slug = stage_info["app_slug"]
+    source_commit = stage_info["source_commit"]
+    release_tag = stage_info["release_tag"]
+    target = args.target or stage_info["target"] or descriptor["default_target"]
     if args.inspect_plugin and target != host_target():
         fail(f"plugin inspection requires host target {host_target()}, got {target}")
 
@@ -598,8 +678,7 @@ def build_bundle(args: argparse.Namespace) -> None:
     manifest_path = plugins_dir / "manifest.json"
     write_json(manifest_path, bundle_manifest)
 
-    short_commit = source_commit[:12]
-    tarball = dist_dir / f"aomi-plugins-{app_slug}-{short_commit}-{target}.tar.gz"
+    tarball = dist_dir / f"aomi-plugins-{release_tag}-{target}.tar.gz"
     with tarfile.open(tarball, "w:gz") as archive:
         archive.add(manifest_path, arcname="plugins/manifest.json")
         archive.add(final_plugin, arcname=f"plugins/{final_plugin.name}")
@@ -613,11 +692,11 @@ def build_bundle(args: argparse.Namespace) -> None:
         "app_slug": app_slug,
         "visibility": descriptor["visibility"],
         "review_policy": descriptor["review_policy"],
-        "source": stage["source"],
+        "source": stage_info["source"],
         "publish": {
             "repo": descriptor["source_repo"],
-            "branch": stage["target"]["branch"],
-            "path": stage["target"]["app_path"],
+            "branch": stage_info["branch"],
+            "path": stage_info["app_path"],
             "commit": current_commit(),
             "release_tag": release_tag,
         },

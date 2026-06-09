@@ -1,9 +1,9 @@
-name: Publish Aomi Apps
+name: Build Candidate App Release
 
 on:
   push:
     branches:
-      - publish
+      - "*/*/*/*"
     paths:
       - "apps/**"
       - "platform.json"
@@ -20,12 +20,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-apps-${{ github.ref }}
+  group: candidate-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   detect:
-    name: Detect staged apps
+    name: Detect candidate apps
+    if: github.actor == 'aomi-build[bot]' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       apps: ${{ steps.detect.outputs.apps }}
@@ -34,18 +35,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch publish baseline
+        run: git fetch origin publish:refs/remotes/origin/publish
+
       - name: Detect changed app directories
         id: detect
         run: |
           python3 .github/scripts/publish_app.py detect-changed \
             --platform platform.json \
-            --base "${{ github.event.before }}" \
+            --base origin/publish \
             --head "${{ github.sha }}" \
             --app-dir "${{ inputs.app_dir }}" \
+            --allow-non-publish-branch \
             --github-output "$GITHUB_OUTPUT"
 
   publish:
-    name: Build and publish ${{ matrix.app_dir }}
+    name: Build candidate release ${{ matrix.app_dir }}
     needs: detect
     if: needs.detect.outputs.apps != '[]'
     runs-on: ubuntu-latest
@@ -76,6 +81,7 @@ jobs:
             --app-dir "${{ matrix.app_dir }}" \
             --target x86_64-unknown-linux-gnu \
             --dist-dir dist \
+            --allow-non-publish-branch \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release

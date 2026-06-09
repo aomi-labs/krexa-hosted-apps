@@ -3,7 +3,7 @@
   "source_repo": "aomi-labs/krexa-hosted-apps",
   "publish_branch": "publish",
   "app_path_prefix": "apps",
-  "release_tag_convention": "apps-{app_slug}-{short_commit}",
+  "release_tag_convention": "apps-{installation_id}-{app_slug}-{short_commit}",
   "visibility": "private",
   "review_policy": "platform-registration",
   "required_sdk_version": "3.0.0",
