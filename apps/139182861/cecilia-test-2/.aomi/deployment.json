@@ -1,0 +1,75 @@
+{
+  "id": "dep_139182861_ffb8541d39de",
+  "status": "",
+  "source": {
+    "installation_id": 139182861,
+    "repository_id": 1253291574,
+    "repository_link": "ceciliaz030/my-aomi-bots",
+    "owner_repo_name": "ceciliaz030/my-aomi-bots",
+    "ref": {
+      "kind": "branch",
+      "value": "e2e/krexa-rust-cli-20260609"
+    },
+    "commit_hash": "ffb8541d39de02ac34d5f55e44d9abc6fc3387d5",
+    "aomi_toml_paths": [
+      "aomi.toml"
+    ]
+  },
+  "platform": {
+    "platform": "krexa",
+    "repository": "aomi-labs/krexa-hosted-apps",
+    "deploy_branch": "publish",
+    "source_branch": "ceciliaz030/my-aomi-bots/139182861/ffb8541d39de",
+    "commit_hash": null,
+    "pr_number": null,
+    "pr_url": null,
+    "ci_status": null,
+    "ci_url": null,
+    "apps": [
+      {
+        "name": "cecilia-test-2",
+        "path": "apps/139182861/cecilia-test-2",
+        "aomi_toml_path": "aomi.toml",
+        "release_tag": "apps-139182861-cecilia-test-2-ffb8541d39de",
+        "target": "x86_64-unknown-linux-gnu",
+        "files": [
+          {
+            "path": ".gitignore",
+            "sha256": "sha256:29a8546e056e0a047851c87ab1e48c7c06fdfcc71c8b5ff01fe9b9cc2e3e678d",
+            "bytes": 27
+          },
+          {
+            "path": "Cargo.toml",
+            "sha256": "sha256:3bae9419c04e59a2abd04e059137e976576f137444566eb86036e00361018c73",
+            "bytes": 1047
+          },
+          {
+            "path": "README.md",
+            "sha256": "sha256:260e5a9259b32972e9a29b9161b75992d3da638a5ec695edb9c644faf98cd9e8",
+            "bytes": 2530
+          },
+          {
+            "path": "aomi.toml",
+            "sha256": "sha256:59c49f68ba2bd666b772753c0593062ab61444200c5425291bdbf31ff9a72a30",
+            "bytes": 550
+          },
+          {
+            "path": "src/client.rs",
+            "sha256": "sha256:d4d6241515eed2b3fc0f2a41b626e3f3c834294dbbe0e61a3bfa77605ed29945",
+            "bytes": 8878
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "sha256:c36e38875447f9a7cc2262badf2a916bc7e6ba06cb39c6d1120fceb8f5de1926",
+            "bytes": 2110
+          },
+          {
+            "path": "src/tools.rs",
+            "sha256": "sha256:155e9100572cb916748e53303086425128aea70a942325c45f5c4822edcc38f9",
+            "bytes": 4817
+          }
+        ]
+      }
+    ]
+  }
+}
