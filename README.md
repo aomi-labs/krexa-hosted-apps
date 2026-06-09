@@ -1,123 +1,144 @@
 # Krexa Hosted Apps
 
-This repo hosts **Aomi app source for the Krexa platform**. It's a private B2B
-publishing target — invite-only, not a general open-source contribution
-surface. If you weren't granted write access by Krexa's platform ops, the
-source you're looking for is somewhere else.
+This repo is the **Krexa hosted app release builder**. The Aomi backend stages
+Krexa app source here, this repo's GitHub Actions build release artifacts, and
+the backend later chooses which artifacts to activate.
 
-You **do not hand-edit `apps/<slug>/`**. That directory is staged for you by
-the `aomi-git` CLI from your own source repo. This repo is the publishing
-target — it's where releases get cut from.
+This repo is not the deployment control plane. The backend owns the
+`deployment.json` contract, source selection, release tag selection, build
+request, and activation request.
+
+You **do not hand-edit `apps/<installation-id>/<app>/`**. Hosted app source
+starts in your own source repo. `aomi-build deploy` sends the source-bound
+request to the backend, and the backend opens or updates the platform PR in
+this repo through the connected GitHub App installation.
 
 ## Contributing an app
 
-👉 **Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first.** It walks you through
-the full pipeline tailored to the Krexa private-B2B flow.
+Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) first. It walks through the full
+pipeline tailored to the Krexa hosted-partner flow.
 
 The short version:
 
-1. Krexa ops adds you as a collaborator on this repo (one-time).
+1. Install the Aomi GitHub App on your source repo and get the resulting
+   `app_source_id` from Krexa ops or the portal.
 2. In your own source repo, author your app with an `aomi.toml` declaring
-   `platform = "krexa"` and `git = "https://github.com/aomi-labs/krexa-hosted-apps"`.
-   The `access_token` field is currently optional — see CONTRIBUTING.md for
-   the "why" — but add `access_token = "$ENV_VAR_NAME"` (env-var ref, never
-   a literal token) the day this repo goes private.
-3. Run `aomi-git deploy`. It auto-manages a transit clone of this repo
-   under `~/.aomi/transit/`, stages your source into `apps/<slug>/`,
-   commits, and pushes to `publish` — no flags, no clone management.
-4. GitHub Actions builds the cdylib and uploads a release tarball.
-5. Hand off to Krexa ops: release tag (+ a one-shot read PAT if/when this
-   repo goes private). Ops runs `aomi-git activate` against the target
-   backend with the Krexa platform token (held by them).
+   `platform = "krexa"`.
+3. Run `aomi-build deploy`. The backend reads your source repo through the
+   GitHub App, stages it under `apps/<installation-id>/<app>/`, writes
+   `apps/<installation-id>/<app>/.aomi/deployment.json`, and opens or updates a
+   platform PR here.
+4. This repo acts as the release builder: CI validates the backend-generated
+   manifest, builds the cdylib, and uploads release assets tagged
+   `apps-<installation-id>-<app>-<short-source-commit>`.
+5. Run `aomi-build activate` after the artifact exists, or have Krexa ops run
+   it with the appropriate activation token. The backend resolves the desired
+   artifact from its deploy/activation record and fetches it.
 
 ## Trust model
 
 The Krexa flow has two distinct trust gates:
 
-- **Repo write** — managed by GitHub collaborators on this repo. Controls
-  who can push source into `apps/<slug>/`.
-- **Backend activation** — managed by the Krexa platform's activation token,
+- **Source access** - managed by the Aomi GitHub App install and its
+  `app_source_id`. Controls which source repo the backend can read for deploy.
+- **Backend activation** - managed by the Krexa platform's activation token,
   held by Krexa ops. Controls which releases actually load on the runtime.
 
-The fetch GitHub PAT you supply at activation is **transient** per ADR 0009
-amended: passed in the activation request body, used once by the backend to
-download the tarball, never persisted, never logged, never stored. Krexa ops
-should ask you for a fresh PAT each activation rather than holding one
-long-lived shared secret.
+Contributors should not provide GitHub PATs for the normal flow. The backend
+reads source through the connected GitHub App and writes platform PRs through
+the platform installation.
 
 ## Repo layout
 
 ```
 krexa-hosted-apps/
-├── README.md           ← you are here
-├── CONTRIBUTING.md     ← E2E Krexa contributor guide
-├── platform.json       ← platform descriptor (see below)
-├── apps/               ← generated source per app; one dir per slug
-│   └── my-krexa-bot/
-└── fixtures/
-    └── hello-world/    ← buildable crate template; never deployed
+|-- README.md
+|-- CONTRIBUTING.md
+|-- platform.json
+|-- apps/
+|   `-- <installation-id>/
+|       `-- <app>/
+|           |-- .aomi/deployment.json
+|           |-- aomi.toml
+|           |-- Cargo.toml
+|           `-- src/
+|-- fixtures/
+|   `-- hello-world/
+`-- .github/
+    |-- workflows/
+    `-- scripts/
 ```
 
-## Publication contract
+## Release-builder contract
 
 These facts are enforced by CI; they exist for reference.
 
 | Field | Value |
 |---|---|
-| Publication branch | `publish` (protected: no force push, no delete) |
-| Staged app path | `apps/<app_slug>/` |
-| Build contract file | `apps/<app_slug>/.aomi/deployment.json` (written by `aomi-git deploy`) |
-| Release tag convention | `apps-{app_slug}-{short_commit}` |
+| Baseline branch | `publish` |
+| Staged app path | `apps/<installation-id>/<app>/` |
+| Deployment manifest | `apps/<installation-id>/<app>/.aomi/deployment.json` |
+| Release tag convention | `apps-<installation-id>-<app>-<short-source-commit>` |
 | Default visibility | `private` |
+| Build target | `x86_64-unknown-linux-gnu` |
 | Required SDK version | see [`platform.json`](./platform.json) |
+
+`deployment.json` is generated by the backend from its deploy record. It
+records app metadata, source repository and commit, platform target, release
+tag, build target, staged app path, and file hashes. CI validates it but does
+not define it.
 
 Each release contains:
 
-- `aomi-plugins-{app_slug}-{short_commit}-{target}.tar.gz` — the runtime bundle
-- `manifest.json` — release metadata
-- `aomi-release.json` — provenance metadata (not a runtime trust boundary)
+- `aomi-plugins-<release-tag>-<target>.tar.gz` - the runtime bundle
+- `manifest.json` - release metadata matching `plugins/manifest.json` inside
+  the tarball
+- `aomi-release.json` - provenance metadata for the release builder output
 
-The backend trusts a release only after `PluginFetcher` validates the release
-tag, exact SDK version, build target, and plugin SHA-256 hashes inside the
-tarball — using a one-shot read PAT supplied at activation time.
+The backend trusts a release only after it validates the requested release tag,
+exact SDK version, build target, and plugin SHA-256 hashes inside the tarball.
 
 ## Platform descriptor (`platform.json`)
 
-`platform.json` at the repo root is the **platform contract** — every rule
-your app must meet to publish here. It's hand-authored by Krexa platform
-ops and read by CI on every push.
+`platform.json` at the repo root is static release-builder configuration. It
+tells CI what this builder is allowed to produce; it is not the deployment
+record for a particular app.
 
 | Field | Meaning | Touched by |
 |---|---|---|
 | `name` | Platform tier label (`krexa`). Match in your `aomi.toml` as `platform = "krexa"`. | Ops on platform bring-up |
-| `source_repo` | This repo (`aomi-labs/krexa-hosted-apps`). CI verifies your `aomi.toml`'s `git` resolves here. | Ops |
-| `publish_branch` | The branch `aomi-git deploy` pushes to. Protected against force-push and deletion. | Ops |
-| `app_path_prefix` | Where staged apps land (`apps`). Combined with your slug → `apps/<slug>/`. | Ops |
-| `release_tag_convention` | Pattern for GitHub release tags built from your source commit. | Ops |
-| `visibility` | `private` — your apps default to private visibility on the backend. | Ops |
-| `review_policy` | `platform-registration` — describes how contributions are vetted. Informational. | Ops |
-| `required_sdk_version` | **The aomi-sdk version your app MUST pin in `Cargo.toml`.** Bundle validation fails on mismatch. | Ops on SDK bumps |
+| `source_repo` | This repo (`aomi-labs/krexa-hosted-apps`). Backend deploys target platform PRs here. | Ops |
+| `publish_branch` | Protected baseline branch for hosted app releases. | Ops |
+| `app_path_prefix` | Where staged apps land (`apps`). | Ops |
+| `release_tag_convention` | Pattern CI validates against the backend manifest. | Ops |
+| `visibility` | `private`; Krexa apps default to private backend visibility. | Ops |
+| `review_policy` | `platform-registration`; describes how contributions are vetted. | Ops |
+| `required_sdk_version` | The aomi-sdk version your app must pin in `Cargo.toml`. | Ops on SDK bumps |
 | `default_target` | Rust target triple CI builds for (`x86_64-unknown-linux-gnu`). | Ops |
 
-You (the contributor) don't edit `platform.json`. You **read** the
-`required_sdk_version` and pin it in your `Cargo.toml`. That's it.
+You do not edit `platform.json` for a deploy. Read `required_sdk_version` and
+pin it in your app's `Cargo.toml`.
 
-When Krexa ops bumps `required_sdk_version`, you'll need to update your
-app's pin to match before your next deploy.
+## Backend ownership
 
-## Build internals
+The backend deploy handler is the source of truth for staged release metadata:
 
-The publish workflow at
-[`.github/workflows/publish-apps.yml`](./.github/workflows/publish-apps.yml)
-runs on push to `publish` and drives a small Python script tucked under
-`.github/scripts/` that no contributor (or anyone) runs by hand — `aomi-git
-deploy` and the workflow handle everything.
+- `POST /api/platforms/:platform/deploy` accepts `app_source_id`, `source_ref`,
+  `aomi_toml_paths`, and `dry_run`.
+- The backend reads source through the GitHub App installation.
+- The backend chooses the candidate branch, staged app path, and release tag.
+- The backend writes `.aomi/deployment.json` into each staged app directory
+  before committing the platform PR.
+- The backend activation endpoint resolves PRs, branches, commits, or release
+  tags into the artifact set to load.
+
+This repo only validates the backend-generated record, builds the cdylib, and
+publishes GitHub release artifacts.
 
 ## Related
 
-- [`aomi-sdk`](https://github.com/aomi-labs/aomi-sdk) — the SDK and the
-  `aomi-git` deploy CLI
-- [`aomi-labs/community-apps`](https://github.com/aomi-labs/community-apps) —
+- [`aomi-sdk`](https://github.com/aomi-labs/aomi-sdk) - SDK and `aomi-build`
+- [`aomi-labs/community-apps`](https://github.com/aomi-labs/community-apps) -
   the public community platform's analog of this repo
-- [`aomi-launch-my-agent`](https://github.com/aomi-labs/aomi-launch-my-agent) —
-  ADRs for the deploy/activate contract (especially 0004, 0009 amended, 0010)
+- [`aomi-launch-my-agent`](https://github.com/aomi-labs/aomi-launch-my-agent) -
+  ADRs for the deploy/activate contract
