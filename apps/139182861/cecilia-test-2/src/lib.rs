@@ -1,4 +1,4 @@
-//! Hyperliquid trading bot — scaffold app for the Aomi `community` platform.
+//! Hyperliquid trading bot — scaffold app for the Aomi `krexa` platform.
 //!
 //! What this app exposes to the agent:
 //!   * Read-only tools (no signing, no env vars needed):

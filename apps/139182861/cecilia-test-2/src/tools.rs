@@ -51,8 +51,7 @@ impl DynAomiTool for GetUserState {
     type App = HyperliquidApp;
     type Args = WalletArgs;
     const NAME: &'static str = "get_user_state";
-    const DESCRIPTION: &'static str =
-        "Read a wallet's Hyperliquid clearinghouse state: open positions, margin, withdrawable balance.";
+    const DESCRIPTION: &'static str = "Read a wallet's Hyperliquid clearinghouse state: open positions, margin, withdrawable balance.";
 
     fn run(_app: &Self::App, args: Self::Args, _ctx: DynToolCallCtx) -> Result<Value, String> {
         InfoClient::new()?.post(json!({
@@ -68,8 +67,7 @@ impl DynAomiTool for GetOpenOrders {
     type App = HyperliquidApp;
     type Args = WalletArgs;
     const NAME: &'static str = "get_open_orders";
-    const DESCRIPTION: &'static str =
-        "List a wallet's currently resting orders on Hyperliquid (with their oids, ready for cancel).";
+    const DESCRIPTION: &'static str = "List a wallet's currently resting orders on Hyperliquid (with their oids, ready for cancel).";
 
     fn run(_app: &Self::App, args: Self::Args, _ctx: DynToolCallCtx) -> Result<Value, String> {
         InfoClient::new()?.post(json!({

@@ -1,5 +1,5 @@
 {
-  "id": "dep_139182861_f452127ec4c3",
+  "id": "dep_139182861_f1659a992f3b",
   "status": "",
   "source": {
     "installation_id": 139182861,
@@ -10,16 +10,17 @@
       "kind": "branch",
       "value": "e2e/krexa-rust-cli-20260609"
     },
-    "commit_hash": "f452127ec4c3fbcd772958a7d5b02d9d630f7a6b",
+    "commit_hash": "f1659a992f3be55be328c27cc276bb7fd3585740",
     "aomi_toml_paths": [
-      "aomi.toml"
+      "aomi.toml",
+      "apps/cecilia-test-3/aomi.toml"
     ]
   },
   "platform": {
     "platform": "krexa",
     "repository": "aomi-labs/krexa-hosted-apps",
     "deploy_branch": "publish",
-    "source_branch": "ceciliaz030/my-aomi-bots/139182861/f452127ec4c3",
+    "source_branch": "ceciliaz030/my-aomi-bots/139182861/f1659a992f3b",
     "commit_hash": null,
     "pr_number": null,
     "pr_url": null,
@@ -30,13 +31,13 @@
         "name": "cecilia-test-2",
         "path": "apps/139182861/cecilia-test-2",
         "aomi_toml_path": "aomi.toml",
-        "release_tag": "apps-139182861-cecilia-test-2-f452127ec4c3",
+        "release_tag": "apps-139182861-cecilia-test-2-f1659a992f3b",
         "target": "x86_64-unknown-linux-gnu",
         "files": [
           {
             "path": ".gitignore",
-            "sha256": "sha256:29a8546e056e0a047851c87ab1e48c7c06fdfcc71c8b5ff01fe9b9cc2e3e678d",
-            "bytes": 27
+            "sha256": "sha256:c0d4cc9dd5096d50ec85dfefb52c05bd99246668ffe66043be22621a0a1f4077",
+            "bytes": 26
           },
           {
             "path": "Cargo.toml",
@@ -45,13 +46,28 @@
           },
           {
             "path": "README.md",
-            "sha256": "sha256:260e5a9259b32972e9a29b9161b75992d3da638a5ec695edb9c644faf98cd9e8",
-            "bytes": 2530
+            "sha256": "sha256:a3307582c2f68b3a8a525aba293f1f45896b94245fea780084e2c92d5bd9576d",
+            "bytes": 2569
           },
           {
             "path": "aomi.toml",
             "sha256": "sha256:59c49f68ba2bd666b772753c0593062ab61444200c5425291bdbf31ff9a72a30",
             "bytes": 550
+          },
+          {
+            "path": "apps/cecilia-test-3/Cargo.toml",
+            "sha256": "sha256:c668662001b3da532ef4c3aa199760dfccb6817d9bdb1bfeeb73dc23d4ba8d32",
+            "bytes": 230
+          },
+          {
+            "path": "apps/cecilia-test-3/aomi.toml",
+            "sha256": "sha256:3d330cacd6ad6a18c17734b03099682e9eb42b47a12941b524c39fb9f423c133",
+            "bytes": 178
+          },
+          {
+            "path": "apps/cecilia-test-3/src/lib.rs",
+            "sha256": "sha256:89e27c2f18f3fb3e26289e38bddae15b4630c1a20d7894a99985941ecb879de2",
+            "bytes": 1090
           },
           {
             "path": "src/client.rs",
@@ -60,13 +76,37 @@
           },
           {
             "path": "src/lib.rs",
-            "sha256": "sha256:c36e38875447f9a7cc2262badf2a916bc7e6ba06cb39c6d1120fceb8f5de1926",
-            "bytes": 2110
+            "sha256": "sha256:360416869dcd83ccc7b4b76648bb98bd2266890556e83f4c0b3249084535b1b5",
+            "bytes": 2106
           },
           {
             "path": "src/tools.rs",
-            "sha256": "sha256:155e9100572cb916748e53303086425128aea70a942325c45f5c4822edcc38f9",
-            "bytes": 4817
+            "sha256": "sha256:e9f27b9be543aa353e0132b3a0913d0cc86a6989126526059e4931eddb5e1038",
+            "bytes": 4801
+          }
+        ]
+      },
+      {
+        "name": "cecilia-test-3",
+        "path": "apps/139182861/cecilia-test-3",
+        "aomi_toml_path": "apps/cecilia-test-3/aomi.toml",
+        "release_tag": "apps-139182861-cecilia-test-3-f1659a992f3b",
+        "target": "x86_64-unknown-linux-gnu",
+        "files": [
+          {
+            "path": "Cargo.toml",
+            "sha256": "sha256:c668662001b3da532ef4c3aa199760dfccb6817d9bdb1bfeeb73dc23d4ba8d32",
+            "bytes": 230
+          },
+          {
+            "path": "aomi.toml",
+            "sha256": "sha256:3d330cacd6ad6a18c17734b03099682e9eb42b47a12941b524c39fb9f423c133",
+            "bytes": 178
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "sha256:89e27c2f18f3fb3e26289e38bddae15b4630c1a20d7894a99985941ecb879de2",
+            "bytes": 1090
           }
         ]
       }
