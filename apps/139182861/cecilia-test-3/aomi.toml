@@ -1,0 +1,7 @@
+[app]
+name         = "cecilia-test-3"
+display_name = "Cecilia Test 3"
+platform     = "krexa"
+git          = "https://github.com/aomi-labs/krexa-hosted-apps"
+public       = true
+

@@ -1,7 +1,8 @@
 # my-aomi-bots
 
-A Hyperliquid perpetuals trading bot, packaged as an Aomi app for the
-[`community`](https://github.com/aomi-labs/community-apps) platform.
+Hosted app smoke-test source for the `krexa` platform. This branch intentionally
+contains two tracked `aomi.toml` files so the deploy path can exercise a
+multi-app payload.
 
 ## Tools exposed to the agent
 
@@ -23,8 +24,13 @@ before wiring real trades.
 
 ```
 my-aomi-bots/
-├── aomi.toml         # platform manifest — slug, platform, target_tags
+├── aomi.toml         # app one: cecilia-test-2
 ├── Cargo.toml        # cdylib + aomi-sdk pinned to platform.json's required_sdk_version
+├── apps/
+│   └── cecilia-test-3/
+│       ├── aomi.toml # app two: cecilia-test-3
+│       ├── Cargo.toml
+│       └── src/lib.rs
 ├── src/
 │   ├── lib.rs        # dyn_aomi_app! registration + preamble
 │   ├── client.rs     # HTTP client, Trader scaffold, arg structs, action builders
@@ -34,26 +40,23 @@ my-aomi-bots/
 
 ## Publishing
 
-Authoring lives here; publishing goes through the `aomi-git` CLI.
+Authoring lives here; publishing goes through the hosted deploy commands in
+`aomi-build`.
 
 ```bash
 # 1. Compile check
 cargo check
+cargo check --manifest-path apps/cecilia-test-3/Cargo.toml
 
-# 2. Dry-run preflight against staging
-AOMI_BACKEND_URL=https://staging-api.aomi.dev \
-  aomi-git deploy --dry-run --preflight
+# 2. Deploy both tracked app manifests
+aomi-build deploy --platform krexa --branch e2e/krexa-rust-cli-20260609
 
-# 3. Stage + push to the community publish repo
-aomi-git deploy --platform-repo-dir /path/to/community-apps
+# 3. Activate from the generated local deployment state
+aomi-build activate --path .
 ```
 
-CI builds the cdylib and uploads a release tarball. Activation against the
-backend is held by the community platform operator — ping them with the
-release tag once CI is green.
-
-See [`community-apps/CONTRIBUTING.md`](https://github.com/aomi-labs/community-apps/blob/main/CONTRIBUTING.md)
-for the full pipeline walkthrough.
+The deploy command writes `.aomi/deployment.json`; activation reads the release
+tags from that file and syncs the activation result back into it.
 
 ## TODOs
 
