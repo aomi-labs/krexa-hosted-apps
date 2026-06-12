@@ -15,11 +15,11 @@ release artifacts.
 3. **Deploy** with `aomi-build deploy`. The CLI sends a source-bound request to
    the backend.
 4. **Backend staging** fetches your source through the GitHub App, writes
-   `apps/<installation-id>/<app>/.aomi/deployment.json`, and opens or updates a
+   `apps/<installation-id>/<repo-key>/<app>/.aomi/deployment.json`, and opens or updates a
    platform PR in this repo.
 5. **Release-builder CI** validates the backend manifest, builds the cdylib,
    and publishes release artifacts tagged
-   `apps-<installation-id>-<app>-<short-source-commit>`.
+   `apps-<installation-id>-<repo-key>-<app>-<short-source-commit>`.
 6. **Activation** calls the backend. The backend resolves the requested PR,
    branch, commit, or release tags against its deployment record and fetches the
    desired artifacts.
@@ -40,9 +40,9 @@ sequenceDiagram
     CLI->>BE: POST /api/platforms/krexa/deploy
     BE->>Src: fetch source via GitHub App app_source_id
     BE->>Repo: push candidate branch + open/update PR
-    BE->>Repo: write apps/<installation-id>/<app>/.aomi/deployment.json
+    BE->>Repo: write apps/<installation-id>/<repo-key>/<app>/.aomi/deployment.json
     Repo->>CI: validate backend manifest + build release
-    CI->>Repo: upload release apps-<installation-id>-<app>-<short-commit>
+    CI->>Repo: upload release apps-<installation-id>-<repo-key>-<app>-<short-commit>
     You->>CLI: aomi-build activate
     CLI->>BE: POST /api/platforms/krexa/apps/activate
     BE->>Repo: fetch selected release artifact
@@ -219,11 +219,16 @@ The backend deploy handler does the platform work:
 1. Resolves the selected source ref to an exact commit.
 2. Fetches the source repo archive through the GitHub App.
 3. Parses each requested `aomi.toml`.
-4. Copies app source into `apps/<installation-id>/<app>/`.
-5. Generates `apps/<installation-id>/<app>/.aomi/deployment.json` from the
+4. Copies app source into `apps/<installation-id>/<repo-key>/<app>/`.
+5. Generates `apps/<installation-id>/<repo-key>/<app>/.aomi/deployment.json` from the
    backend deploy record.
 6. Pushes a candidate branch for review/build.
 7. Opens or updates a platform PR against `publish`.
+
+`<repo-key>` is a short, stable key the backend derives from your source repo
+(for example `r14902bb079`). It namespaces both the staged path and the release
+tag so one GitHub App installation can host multiple source repos — or the same
+app name from different repos — without collisions.
 
 The generated platform `deployment.json` records the backend's view of the
 release: app metadata, source repository, source commit, platform, staged app
@@ -246,14 +251,14 @@ build the release artifact. Activate only after the artifact exists.
 
 This repo is responsible for building artifacts from backend-staged source. CI
 uses `publish` as the baseline, validates changed app directories under
-`apps/<installation-id>/<app>/`, and checks each backend-generated
+`apps/<installation-id>/<repo-key>/<app>/`, and checks each backend-generated
 `.aomi/deployment.json`.
 
 For each valid app, CI:
 
-1. Confirms the staged app path matches `apps/<installation-id>/<app>`.
+1. Confirms the staged app path matches `apps/<installation-id>/<repo-key>/<app>`.
 2. Confirms the app record release tag matches
-   `apps-<installation-id>-<app>-<short-source-commit>`.
+   `apps-<installation-id>-<repo-key>-<app>-<short-source-commit>`.
 3. Confirms source commit, repository, platform, target triple, file hashes,
    and file byte counts.
 4. Builds the app as a Rust `cdylib`.
@@ -308,8 +313,8 @@ CI state, can fast-forward the live branch when required, and derives app paths
 and release tags from the backend candidate branch:
 
 ```
-apps/<installation-id>/<app>
-apps-<installation-id>-<app>-<short-source-commit>
+apps/<installation-id>/<repo-key>/<app>
+apps-<installation-id>-<repo-key>-<app>-<short-source-commit>
 ```
 
 For commit or explicit release-tag activation, the release tags must be
@@ -337,7 +342,7 @@ aomi-build activate \
   --target-tag staging
 
 aomi-build activate \
-  --release-tag apps-123456-my-krexa-app-abc1234 \
+  --release-tag apps-123456-r1a2b3c4d5e-my-krexa-app-abc1234 \
   --platform krexa \
   --target-tag staging
 ```
@@ -393,7 +398,7 @@ aomi-build activate --target-tag prod
 | `deploy needs --app-source-id` | No connected source id was provided | Install the Aomi GitHub App on your source repo and pass `--app-source-id`, or export `AOMI_APP_SOURCE_ID` |
 | `deploy requires an activation token via AOMI_APP_ACTIVATION_TOKEN` | Deploy calls the backend without a platform/app token | Get the token from Krexa ops and export `AOMI_APP_ACTIVATION_TOKEN` |
 | `unknown field \`git\`` or `unknown field \`access_token\`` | Your `aomi.toml` still uses old deployment fields | Remove those fields; source access is bound by `app_source_id` now |
-| `candidate app dir must be apps/<installation-id>/<app>` | Staged path does not match the backend contract | Redeploy through the backend |
+| `candidate app dir must be apps/<installation-id>/<repo-key>/<app>` | Staged path does not match the backend contract | Redeploy through the backend |
 | `deployment manifest release_tag must be ...` | Manifest release tag does not match the backend target | Redeploy through the backend |
 | `no tracked aomi.toml found` | The config file is untracked or in a path the CLI cannot discover | Commit `aomi.toml`, or pass `--aomi-toml <path>` |
 | `no .aomi/deployment.json` | You ran `status` or `activate` before a successful deploy | Run `aomi-build deploy` first, from the same source repo |
@@ -411,7 +416,7 @@ aomi-build activate --target-tag prod
 | `POST /api/platforms/:platform/apps/activate` | backend-owned artifact resolution and activation |
 | `/api/control/apps/status` | runtime registry status; app should show `loaded: true` after activation |
 | local `.aomi/deployment.json` | CLI deploy state in your source repo |
-| platform `.aomi/deployment.json` | backend-generated release manifest in `apps/<installation-id>/<app>/` |
+| platform `.aomi/deployment.json` | backend-generated release manifest in `apps/<installation-id>/<repo-key>/<app>/` |
 | `platform.json` | static release-builder config |
 
 For command details, see
