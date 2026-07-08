@@ -26,7 +26,7 @@ concurrency:
 jobs:
   detect:
     name: Detect candidate apps
-    if: github.actor == 'aomi-build[bot]' || github.event_name == 'workflow_dispatch'
+    if: github.actor == 'aomi-build[bot]' || github.actor == 'aomi-build-staging[bot]' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       apps: ${{ steps.detect.outputs.apps }}
