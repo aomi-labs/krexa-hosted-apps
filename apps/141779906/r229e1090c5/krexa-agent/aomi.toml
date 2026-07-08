@@ -1,0 +1,8 @@
+[app]
+name         = "krexa-agent"
+display_name = "Krexa Credit Agent"
+platform     = "krexa"
+git          = "https://github.com/aomi-labs/krexa-hosted-apps"
+public       = true
+
+# redeploy after CI staging-bot allowlist fix (krexa-hosted-apps#10)
