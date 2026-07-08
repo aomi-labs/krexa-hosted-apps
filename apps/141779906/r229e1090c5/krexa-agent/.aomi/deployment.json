@@ -1,0 +1,102 @@
+{
+  "id": "dep_141779906_r229e1090c5_2cfdf683e94b",
+  "status": "",
+  "source": {
+    "installation_id": 141779906,
+    "repository_id": 1253291574,
+    "repository_link": "ceciliaz030/my-aomi-bots",
+    "owner_repo_name": "ceciliaz030/my-aomi-bots",
+    "ref": "2cfdf683e94bceec99748a115db4e14b66edbd9e",
+    "commit_hash": "2cfdf683e94bceec99748a115db4e14b66edbd9e",
+    "aomi_toml_paths": [
+      "apps/krexa-agent/aomi.toml"
+    ]
+  },
+  "platform": {
+    "platform": "krexa",
+    "repository": "aomi-labs/krexa-hosted-apps",
+    "deploy_branch": "main",
+    "source_branch": "ceciliaz030/my-aomi-bots/141779906/2cfdf683e94b",
+    "commit_hash": null,
+    "pr_number": null,
+    "pr_url": null,
+    "ci_status": null,
+    "ci_url": null,
+    "apps": [
+      {
+        "name": "krexa-agent",
+        "path": "apps/141779906/r229e1090c5/krexa-agent",
+        "aomi_toml_path": "apps/krexa-agent/aomi.toml",
+        "release_tag": "apps-141779906-r229e1090c5-krexa-agent-2cfdf683e94b",
+        "target": "x86_64-unknown-linux-gnu",
+        "files": [
+          {
+            "path": "Cargo.lock",
+            "sha256": "sha256:95de58ea31adc27140f7dc055e396db0a6e7f847011f76886a6e60fd65ebf20b",
+            "bytes": 50785
+          },
+          {
+            "path": "Cargo.toml",
+            "sha256": "sha256:be4d175183ffca64190548110b2e7a145aa4732c61302eef8da3507a532ec7a1",
+            "bytes": 836
+          },
+          {
+            "path": "aomi.toml",
+            "sha256": "sha256:2fe685e439ac911a858bd0b0613c7a4d6690f61a04d7ba5976e7939c2e434186",
+            "bytes": 178
+          },
+          {
+            "path": "src/auth.rs",
+            "sha256": "sha256:afa24eca2428a49af1a1a9a6b0365f6ba5ce41dfd945c0a6089419e488d0c482",
+            "bytes": 5260
+          },
+          {
+            "path": "src/client/client.rs",
+            "sha256": "sha256:ceae176f6085aecc88a3dd3bf306ef0e78f1b989861b75dae5337bcaafeabcfe",
+            "bytes": 160937
+          },
+          {
+            "path": "src/client/mod.rs",
+            "sha256": "sha256:1f610640cf0dd0b07fe9c2e3b46c461ab3e5bae18788473191f7b42d51d9cbec",
+            "bytes": 319
+          },
+          {
+            "path": "src/lib.rs",
+            "sha256": "sha256:9d56f7edb118677b9a193da1873c2c6097c7db9f4152e50ba9d90613f2fb52a9",
+            "bytes": 4188
+          },
+          {
+            "path": "src/src/auth.rs",
+            "sha256": "sha256:afa24eca2428a49af1a1a9a6b0365f6ba5ce41dfd945c0a6089419e488d0c482",
+            "bytes": 5260
+          },
+          {
+            "path": "src/src/client/client.rs",
+            "sha256": "sha256:ceae176f6085aecc88a3dd3bf306ef0e78f1b989861b75dae5337bcaafeabcfe",
+            "bytes": 160937
+          },
+          {
+            "path": "src/src/client/mod.rs",
+            "sha256": "sha256:1f610640cf0dd0b07fe9c2e3b46c461ab3e5bae18788473191f7b42d51d9cbec",
+            "bytes": 319
+          },
+          {
+            "path": "src/src/lib.rs",
+            "sha256": "sha256:9d56f7edb118677b9a193da1873c2c6097c7db9f4152e50ba9d90613f2fb52a9",
+            "bytes": 4188
+          },
+          {
+            "path": "src/src/tool.rs",
+            "sha256": "sha256:1b4e2123130d32db19757344d6fa0765c02fb61be424edacc6c8b9c660eeeb77",
+            "bytes": 21705
+          },
+          {
+            "path": "src/tool.rs",
+            "sha256": "sha256:1b4e2123130d32db19757344d6fa0765c02fb61be424edacc6c8b9c660eeeb77",
+            "bytes": 21705
+          }
+        ]
+      }
+    ]
+  }
+}

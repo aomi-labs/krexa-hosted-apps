@@ -1,0 +1,6 @@
+[app]
+name         = "krexa-agent"
+display_name = "Krexa Credit Agent"
+platform     = "krexa"
+git          = "https://github.com/aomi-labs/krexa-hosted-apps"
+public       = true
