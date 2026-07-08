@@ -1,13 +1,13 @@
 {
-  "id": "dep_141779906_r229e1090c5_3b8009350673",
+  "id": "dep_141779906_r229e1090c5_0dcd9a5bdb15",
   "status": "",
   "source": {
     "installation_id": 141779906,
     "repository_id": 1253291574,
     "repository_link": "ceciliaz030/my-aomi-bots",
     "owner_repo_name": "ceciliaz030/my-aomi-bots",
-    "ref": "3b800935067335b946ff470347322c5ee2180eb2",
-    "commit_hash": "3b800935067335b946ff470347322c5ee2180eb2",
+    "ref": "0dcd9a5bdb15c7e5d8e542130f9d7f4813c8ba8d",
+    "commit_hash": "0dcd9a5bdb15c7e5d8e542130f9d7f4813c8ba8d",
     "aomi_toml_paths": [
       "apps/krexa-agent/aomi.toml"
     ]
@@ -16,7 +16,7 @@
     "platform": "krexa",
     "repository": "aomi-labs/krexa-hosted-apps",
     "deploy_branch": "main",
-    "source_branch": "ceciliaz030/my-aomi-bots/141779906/3b8009350673",
+    "source_branch": "ceciliaz030/my-aomi-bots/141779906/0dcd9a5bdb15",
     "commit_hash": null,
     "pr_number": null,
     "pr_url": null,
@@ -27,7 +27,7 @@
         "name": "krexa-agent",
         "path": "apps/141779906/r229e1090c5/krexa-agent",
         "aomi_toml_path": "apps/krexa-agent/aomi.toml",
-        "release_tag": "apps-141779906-r229e1090c5-krexa-agent-3b8009350673",
+        "release_tag": "apps-141779906-r229e1090c5-krexa-agent-0dcd9a5bdb15",
         "target": "x86_64-unknown-linux-gnu",
         "files": [
           {
@@ -42,8 +42,8 @@
           },
           {
             "path": "aomi.toml",
-            "sha256": "sha256:e117e0bd0786022ac96b423ab05a06de00567bc5bd3852ce1bdc989267154632",
-            "bytes": 322
+            "sha256": "sha256:c68d9fda8708e3a77faa5f24810c052405435640cf38cb6e8f9658d6b4cb49b0",
+            "bytes": 349
           },
           {
             "path": "src/auth.rs",
