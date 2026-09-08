@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import os
@@ -9,6 +8,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import tomllib
@@ -45,29 +45,47 @@ def run(
         cwd=cwd or REPO_ROOT,
         env=merged_env,
         text=True,
-        stdout=subprocess.PIPE if capture else None,
-        stderr=subprocess.PIPE if capture else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    if not capture:
+        print(result.stdout or "", end="")
+        print(result.stderr or "", end="", file=sys.stderr)
     if result.returncode != 0:
         command = " ".join(cmd)
-        detail = result.stderr.strip() if capture and result.stderr else ""
+        detail = (result.stderr or "")[-6000:].strip()
         fail(f"command failed ({command}): {detail}")
     return result.stdout.strip() if capture and result.stdout else ""
 
 
+def run_capture(
+    cmd: list[str],
+    *,
+    cwd: pathlib.Path | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Like run(), but returns the CompletedProcess instead of raising on a
+    non-zero exit code.
+
+    Use this (instead of run()) when a caller needs to classify *why* a
+    command failed -- e.g. read_plugin_secrets distinguishing an older SDK
+    whose `aomi-build` lacks the `manifest` subcommand (a legitimate, expected
+    failure) from a transient/real failure (which must fail the build).
+    """
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+    return subprocess.run(
+        cmd,
+        cwd=cwd or REPO_ROOT,
+        env=merged_env,
+        text=True,
+        capture_output=True,
+    )
+
+
 def git(args: list[str], *, capture: bool = True) -> str:
     return run(["git", *args], capture=capture)
-
-
-def gh(args: list[str], *, capture: bool = True) -> str:
-    return run(["gh", *args], capture=capture)
-
-
-def current_branch() -> str:
-    ref_name = os.environ.get("GITHUB_REF_NAME", "").strip()
-    if ref_name:
-        return ref_name
-    return git(["branch", "--show-current"])
 
 
 def current_commit() -> str:
@@ -101,47 +119,6 @@ def sha256_prefixed_file(path: pathlib.Path) -> str:
 
 def relpath(path: pathlib.Path) -> str:
     return path.relative_to(REPO_ROOT).as_posix()
-
-
-def branch_context() -> dict[str, str]:
-    branch = current_branch()
-    match = BRANCH_RE.match(branch)
-    if not match:
-        fail(
-            "candidate release workflow must run on "
-            "`<owner>/<repo>/<installation-id>/<short-commit>` branches"
-        )
-    value = match.groupdict()
-    value["owner_repo"] = f"{value['owner'].lower()}/{value['repo'].lower()}"
-    value["short_commit"] = value["short_commit"].lower()
-    value["branch"] = branch
-    return value
-
-
-def changed_paths(base: str, head: str) -> list[str]:
-    base = base.strip()
-    head = head.strip() or "HEAD"
-    if base:
-        try:
-            return git(["diff", "--name-only", base, head]).splitlines()
-        except SystemExit:
-            pass
-    return git(["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", head]).splitlines()
-
-
-def changed_app_dirs(base: str, head: str) -> list[str]:
-    dirs: set[str] = set()
-    for path in changed_paths(base, head):
-        parts = pathlib.PurePosixPath(path).parts
-        if (
-            len(parts) >= 4
-            and parts[0] == "apps"
-            and parts[1].isdigit()
-            and REPO_KEY_RE.match(parts[2])
-            and not parts[3].startswith(".")
-        ):
-            dirs.add("/".join(parts[:4]))
-    return sorted(dirs)
 
 
 def get_str(value: dict[str, Any], path: tuple[str, ...], *, required: bool = True) -> str | None:
@@ -196,11 +173,12 @@ def resolve_sdk_version(app_dir: pathlib.Path) -> str:
         [
             "cargo",
             "metadata",
+            "--locked",
             "--format-version",
             "1",
             "--manifest-path",
             str(manifest_path),
-        ]
+        ], cwd=app_dir,
     )
     metadata = json.loads(output)
     packages = {pkg["id"]: pkg for pkg in metadata.get("packages", [])}
@@ -294,7 +272,7 @@ def deployment_app_record(
     return matches[0]
 
 
-def load_deployment(app_dir: pathlib.Path, ctx: dict[str, str], target: str) -> dict[str, str]:
+def load_deployment(app_dir: pathlib.Path, ctx: dict[str, str], target: str, source_dir: pathlib.Path | None = None) -> dict[str, str]:
     path = app_dir / ".aomi" / "deployment.json"
     manifest = load_json(path)
     parts = app_dir.relative_to(REPO_ROOT).parts
@@ -340,8 +318,8 @@ def load_deployment(app_dir: pathlib.Path, ctx: dict[str, str], target: str) -> 
     if source_repo and normalize_repo(source_repo) != ctx["owner_repo"]:
         fail("deployment manifest source repo does not match branch owner/repo")
 
-    if platform_name != "krexa":
-        fail("deployment manifest platform must be krexa")
+    if platform_name != ctx.get("platform", "community"):
+        fail("deployment manifest platform does not match the project")
 
     if app_path != expected_app_path:
         fail(f"deployment manifest app path must be {expected_app_path}")
@@ -353,7 +331,7 @@ def load_deployment(app_dir: pathlib.Path, ctx: dict[str, str], target: str) -> 
     if manifest_target and manifest_target != target:
         fail(f"deployment manifest target must be {target}")
 
-    validate_file_manifest(app_dir, files)
+    validate_file_manifest(source_dir or app_dir, files)
     return {
         "app_name": app_name,
         "installation_id": installation_id,
@@ -364,17 +342,144 @@ def load_deployment(app_dir: pathlib.Path, ctx: dict[str, str], target: str) -> 
     }
 
 
-def build_release(app_dir: pathlib.Path, ctx: dict[str, str], target: str, dist_root: pathlib.Path) -> dict[str, str]:
-    info = load_deployment(app_dir, ctx, target)
+# NOTE: this is a stderr-text heuristic, not a structural check -- clap does
+# not give us a machine-readable "unknown subcommand" signal via exit code
+# alone, and we don't yet know the exact aomi-sdk version in which the
+# `manifest` subcommand shipped. Once that version is known/pinned, prefer
+# gating on `sdk_version` directly (e.g. `sdk_version < MANIFEST_MIN_VERSION`)
+# instead of sniffing clap's stderr wording, which is inherently fragile
+# across clap releases.
+# TODO(manifest-min-version): replace this stderr heuristic with a version
+# comparison once the introducing aomi-sdk version is known/released.
+def is_unsupported_manifest_error(stderr: str) -> bool:
+    """True iff `stderr` looks like clap rejecting the `manifest` SUBCOMMAND
+    itself as unknown, i.e. the installed aomi-sdk predates the `manifest`
+    subcommand.
+
+    This must be narrow: it is only "unsupported" when the rejected/unknown
+    token clap complains about is `manifest` itself. A flag-level rejection
+    on an SDK that DOES have the `manifest` subcommand -- e.g.
+    `error: unexpected argument '--lib' found` -- names `--lib`, not
+    `manifest`, and is a real manifest-contract bug that must fail the build,
+    not be silently treated as "old SDK, fall back to []".
+
+    Any other non-zero exit (network blip, panic, timeout, unrelated flag
+    rejection, etc.) is a real failure and must NOT be classified as
+    "unsupported".
+    """
+    lowered = stderr.lower()
+
+    # Modern clap (v4): subcommand plainly not registered.
+    #   error: unrecognized subcommand 'manifest'
+    if "unrecognized subcommand" in lowered and "manifest" in lowered:
+        return True
+
+    # Defensive: alternate wording for the same "no such subcommand" case.
+    if "no such subcommand" in lowered and "manifest" in lowered:
+        return True
+
+    # clap can also report an unregistered subcommand as an "unexpected
+    # argument" that names the subcommand itself, e.g.:
+    #   error: unexpected argument 'manifest' found
+    # This still names `manifest` as the rejected token -- unlike a
+    # flag-level rejection such as `error: unexpected argument '--lib' found`,
+    # which names `--lib` and must NOT match here.
+    if "unexpected argument" in lowered and "'manifest'" in lowered:
+        return True
+
+    # Older clap (v2/v3) phrasing that names the subcommand directly:
+    #   error: Found argument 'manifest' which wasn't expected, or isn't
+    #   valid in this context
+    # Requiring both the phrase AND the quoted `'manifest'` token (rather than
+    # a bare "wasn't expected" substring match) keeps this from matching a
+    # flag-level rejection phrased the same way for some other argument.
+    if "wasn't expected" in lowered and "'manifest'" in lowered:
+        return True
+
+    return False
+
+
+def read_plugin_secrets(plugin_path: pathlib.Path, sdk_version: str) -> list[dict[str, Any]]:
+    """Declared secret slots for a built plugin, via `aomi-build manifest`.
+
+    Installs the app's exact pinned aomi-sdk so the manifest reader matches the
+    ABI the plugin was built against. Returns [] ONLY when the installed SDK
+    genuinely predates the `manifest` subcommand -- that is the sole
+    legitimate reason a build may ship without secret metadata. Any other
+    failure (a flaky `cargo install`, a transient `aomi-build manifest`
+    error, or malformed output from an SDK that DOES support `manifest`) must
+    fail the build rather than silently publish a release with no secret
+    metadata, which would permanently ungate an app that declares required
+    secrets.
+    """
+    bin_root = pathlib.Path(tempfile.mkdtemp(prefix="aomi-build-cli-"))
+    # A failure here (network hiccup, flaky cargo install, etc.) is always a
+    # real failure -- an older SDK still installs fine, it just lacks the
+    # `manifest` subcommand (handled below). Let run() raise via fail().
+    run([
+        "cargo", "install", "aomi-sdk",
+        "--version", f"={sdk_version}",
+        "--features", "cli", "--bin", "aomi-build",
+        "--locked", "--root", str(bin_root),
+    ])
+
+    result = run_capture([str(bin_root / "bin" / "aomi-build"), "manifest", "--lib", str(plugin_path)])
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        if is_unsupported_manifest_error(stderr):
+            print(
+                f"::notice::{plugin_path.name}: installed aomi-sdk {sdk_version} has no "
+                "`manifest` subcommand (predates secret-declaration support); "
+                "this app cannot be secret-gated"
+            )
+            return []
+        fail(
+            f"aomi-build manifest failed for {plugin_path.name} (sdk {sdk_version}): "
+            f"{stderr or 'no stderr captured'}"
+        )
+
+    output = (result.stdout or "").strip()
+    try:
+        manifest = json.loads(output)
+    except json.JSONDecodeError as err:
+        fail(
+            f"aomi-build manifest for {plugin_path.name} (sdk {sdk_version}) produced "
+            f"invalid JSON: {err}"
+        )
+
+    if not isinstance(manifest, dict):
+        fail(
+            f"aomi-build manifest for {plugin_path.name} (sdk {sdk_version}) returned "
+            f"{type(manifest).__name__}, expected a JSON object"
+        )
+
+    secrets = manifest.get("secrets")
+    if secrets is None:
+        return []
+    if not isinstance(secrets, list):
+        fail(
+            f"aomi-build manifest for {plugin_path.name} (sdk {sdk_version}): \"secrets\" "
+            f"field is {type(secrets).__name__}, expected a list"
+        )
+    return secrets
+
+
+def build_release(app_dir: pathlib.Path, ctx: dict[str, str], target: str, dist_root: pathlib.Path, source_dir: pathlib.Path | None = None) -> dict[str, str]:
+    info = load_deployment(app_dir, ctx, target, source_dir)
+    source_dir = source_dir or app_dir
     app_name = info["app_name"]
-    package_name, lib_name = parse_cargo_manifest(app_dir)
-    sdk_version = resolve_sdk_version(app_dir)
+    package_name, lib_name = parse_cargo_manifest(source_dir)
+    sdk_version = resolve_sdk_version(source_dir)
+    expected_sdk = ctx.get("sdk_version")
+    if expected_sdk and sdk_version != expected_sdk:
+        fail(f"{app_name}: aomi-sdk {sdk_version} does not match required {expected_sdk}")
 
     target_dir = REPO_ROOT / ".aomi-ci-target"
     run(
         [
             "cargo",
             "build",
+            "--locked",
             "--lib",
             "--release",
             "--target",
@@ -382,9 +487,10 @@ def build_release(app_dir: pathlib.Path, ctx: dict[str, str], target: str, dist_
             "--target-dir",
             str(target_dir),
             "--manifest-path",
-            str(app_dir / "Cargo.toml"),
+            str(source_dir / "Cargo.toml"),
         ],
         capture=False,
+        cwd=source_dir,
     )
 
     built_lib = target_dir / target / "release" / cargo_lib_name(lib_name, target)
@@ -401,17 +507,16 @@ def build_release(app_dir: pathlib.Path, ctx: dict[str, str], target: str, dist_
     final_plugin = plugins_dir / plugin_file_name(app_name, target)
     shutil.copy2(built_lib, final_plugin)
     digest = sha256_file(final_plugin)
+    entry: dict[str, Any] = {"file": final_plugin.name, "sha256": digest}
+    secrets = read_plugin_secrets(final_plugin, sdk_version)
+    if secrets:
+        entry["secrets"] = secrets
     bundle_manifest = {
         "app_release_tag": release_tag,
         "sdk_version": sdk_version,
         "target": target,
         "commit": info["source_commit"],
-        "plugins": {
-            app_name: {
-                "file": final_plugin.name,
-                "sha256": digest,
-            }
-        },
+        "plugins": {app_name: entry},
     }
     manifest_path = plugins_dir / "manifest.json"
     write_json(manifest_path, bundle_manifest)
@@ -426,7 +531,7 @@ def build_release(app_dir: pathlib.Path, ctx: dict[str, str], target: str, dist_
     shutil.copy2(manifest_path, standalone_manifest)
     release_metadata = {
         "schema_version": 1,
-        "platform": "krexa",
+        "platform": ctx.get("platform", "community"),
         "app": {
             "name": app_name,
             "path": info["app_path"],
@@ -459,7 +564,7 @@ def build_release(app_dir: pathlib.Path, ctx: dict[str, str], target: str, dist_
     notes.write_text(
         "\n".join(
             [
-                "Aomi krexa candidate release.",
+                f"Aomi {ctx.get("platform", "community")} candidate release.",
                 "",
                 f"- App: {app_name}",
                 f"- Release: {release_tag}",
@@ -495,87 +600,3 @@ def verify_tarball(tarball: pathlib.Path, expected_manifest: dict[str, Any]) -> 
                 fail(f"tarball plugin missing for {name}")
             if sha256_file(plugin) != entry["sha256"]:
                 fail(f"tarball plugin checksum mismatch for {name}")
-
-
-def publish_release(bundle: dict[str, str]) -> None:
-    release_tag = bundle["release_tag"]
-    if not os.environ.get("GH_TOKEN"):
-        fail("GH_TOKEN is required to publish candidate releases")
-    assets = [bundle["tarball"], bundle["manifest"], bundle["metadata"]]
-    existing = subprocess.run(
-        ["gh", "release", "view", release_tag],
-        cwd=REPO_ROOT,
-        env=os.environ.copy(),
-        text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    if existing.returncode == 0:
-        gh(["release", "upload", release_tag, *assets, "--clobber"], capture=False)
-    else:
-        gh(
-            [
-                "release",
-                "create",
-                release_tag,
-                "--target",
-                current_commit(),
-                "--title",
-                release_tag,
-                "--notes-file",
-                bundle["notes"],
-                *assets,
-            ],
-            capture=False,
-        )
-
-
-def command_detect(args: argparse.Namespace) -> None:
-    branch_context()
-    dirs = changed_app_dirs(args.base, args.head)
-    value = json.dumps(dirs)
-    print(value)
-    if args.github_output:
-        with pathlib.Path(args.github_output).open("a", encoding="utf-8") as fh:
-            fh.write(f"apps={value}\n")
-
-
-def command_release(args: argparse.Namespace) -> None:
-    ctx = branch_context()
-    dirs = changed_app_dirs(args.base, args.head)
-    if not dirs:
-        print("No candidate app directories changed.")
-        return
-    dist_root = (REPO_ROOT / args.dist_dir).resolve()
-    if dist_root.exists():
-        shutil.rmtree(dist_root)
-    dist_root.mkdir(parents=True)
-    for app_dir in dirs:
-        bundle = build_release(REPO_ROOT / app_dir, ctx, args.target, dist_root)
-        publish_release(bundle)
-        print(f"published {bundle['release_tag']}")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Build backend-deployed Aomi candidate apps")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    detect = subparsers.add_parser("detect")
-    detect.add_argument("--base", required=True)
-    detect.add_argument("--head", default="HEAD")
-    detect.add_argument("--github-output")
-    detect.set_defaults(func=command_detect)
-
-    release = subparsers.add_parser("release")
-    release.add_argument("--base", required=True)
-    release.add_argument("--head", default="HEAD")
-    release.add_argument("--target", default="x86_64-unknown-linux-gnu")
-    release.add_argument("--dist-dir", default="dist")
-    release.set_defaults(func=command_release)
-
-    args = parser.parse_args()
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()
