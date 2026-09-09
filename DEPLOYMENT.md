@@ -38,6 +38,14 @@ releases with `contents: write`. No global admin or GitHub App private key is
 needed here. Manager's GitHub App must be installed on this platform repository
 with Contents, Pull Requests and Actions read/write access.
 
+One platform repository serves both `staging` and `production`. The same
+workflow, scripts and `publish` branch handle either target; only
+`AOMI_PLATFORM_TOKEN` differs, stored per GitHub environment. Do not enable
+required reviewers or any other wait-style protection rule on these
+environments: Verify runs after activation, so a review gate would hold or
+expire the run once the release is already live and Build could never observe
+verification.
+
 Adjust `runs-on`, caching or compilation for your platform. Preserve these
 inputs and job names so Aomi Build can report progress and recovery correctly:
 

@@ -105,10 +105,11 @@ def prepare():
     # deploy later merely because Actions held it in its concurrency queue.
     repo = os.environ["GITHUB_REPOSITORY"]
     runs = request("GET", f"https://api.github.com/repos/{repo}/actions/workflows/deploy-project.yml/runs?event=workflow_dispatch&per_page=100", os.environ["GH_TOKEN"])["workflow_runs"]
-    current = next(run for run in runs if str(run["id"]) == os.environ["GITHUB_RUN_ID"])
-    prefix = f"aomi-deploy|{os.environ['DEPLOY_ENVIRONMENT']}|{project}|"
-    duplicate = any(run["id"] < current["id"] and run.get("display_title", "").startswith(prefix)
-                    and run["updated_at"] > current["created_at"] for run in runs)
+    current = next((run for run in runs if str(run["id"]) == os.environ["GITHUB_RUN_ID"]), None)
+    # Only a same-commit request is a duplicate; an older run for another SHA is a distinct deployment.
+    prefix = f"aomi-deploy|{os.environ['DEPLOY_ENVIRONMENT']}|{project}|{os.environ['SOURCE_REF']}|"
+    duplicate = current is not None and any(run["id"] < current["id"] and run.get("display_title", "").startswith(prefix)
+                                            and run["updated_at"] > current["created_at"] for run in runs)
     output("skip", "true" if duplicate else "false")
     if duplicate:
         print("Another attempt already owns this deployment request.")
@@ -213,7 +214,7 @@ def build():
     deployment = read_deployment()
     source = WORK / "source"
     extract_source(WORK / "source.tar.gz", source)
-    ctx = {"owner_repo": deployment["source"]["repository_link"], "installation_id": str(deployment["source"]["installation_id"]),
+    ctx = {"owner_repo": candidate.normalize_repo(deployment["source"]["repository_link"]), "installation_id": str(deployment["source"]["installation_id"]),
            "short_commit": deployment["source"]["commit_hash"][:12], "branch": deployment["platform"]["platform_branch"],
            "platform": deployment["platform"]["platform"], "sdk_version": deployment["sdk_version"]}
     # The deployment's branch is the canonical authority for short SHA length.
@@ -262,7 +263,7 @@ def publish():
         assets = [directory / f"aomi-plugins-{tag}-{TARGET}.tar.gz", manifest_path, directory / "aomi-release.json"]
         result = subprocess.run(["gh", "release", "create", tag, "--repo", repo, "--target", deployment["platform"]["commit_hash"], "--title", tag, *map(str, assets)], env=env, capture_output=True, text=True)
         if result.returncode:
-            raise RuntimeError(f"Could not publish release for {app['name']}")
+            raise RuntimeError(f"Could not publish release for {app['name']}\n{diagnostic(result.stderr[-2000:])}")
 
 
 def verify_bundle(directory, deployment, app, manifest):
@@ -314,9 +315,12 @@ def activate():
 def verify():
     deployment = read_deployment()
     expected = {app["name"]: app["release_tag"] for app in deployment["platform"]["apps"] if app["name"] == os.environ["VERIFY_APP"]}
+    if not expected:
+        raise RuntimeError("VERIFY_APP is not part of this deployment")
     platform = urllib.parse.quote(deployment["platform"]["platform"], safe="")
     deadline = time.monotonic() + 8 * 60
     failures = 0
+    ready = set()
     while time.monotonic() < deadline:
         try:
             result = {"apps": [api("GET", f"/api/platforms/{platform}/apps/{urllib.parse.quote(name, safe='')}?release_tag={urllib.parse.quote(tag, safe='')}")["app"] for name, tag in expected.items()]}

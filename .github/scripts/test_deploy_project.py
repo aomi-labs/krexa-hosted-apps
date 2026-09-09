@@ -9,6 +9,7 @@ import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
+import build_candidate as candidate
 import deploy_project as deploy
 
 class SourcePackaging(unittest.TestCase):
@@ -126,7 +127,7 @@ class PlatformLifecycle(unittest.TestCase):
                          "apps": [{"name": "demo", "release_tag": "apps-12-r0123456789-demo-" + self.source[:12]}]},
         }
         self.run = {"id": 20, "created_at": "2026-09-08T00:00:01Z", "updated_at": "2026-09-08T00:00:01Z",
-                    "display_title": "aomi-deploy|staging|42|" + self.source, "status": "in_progress"}
+                    "display_title": "aomi-deploy|staging|42|" + self.source + "|main|", "status": "in_progress"}
         variables = {"GH_TOKEN": "fixture-github", "AOMI_PLATFORM_TOKEN": "fixture-platform",
                      "GITHUB_RUN_ID": "20", "GITHUB_REPOSITORY": "partner/apps", "PROJECT_ID": "42",
                      "SOURCE_REF": self.source, "CANDIDATE_REF": self.candidate, "DEPLOYMENT_ID": self.deployment_id,
@@ -191,6 +192,35 @@ class PlatformLifecycle(unittest.TestCase):
         self.assertIn("skip=true", (self.work / "outputs").read_text())
         self.assertEqual(request.call_count, 1)
         self.assertFalse((self.work / "source.tar.gz").exists())
+
+    def test_older_run_for_a_different_commit_is_not_a_duplicate(self):
+        prior = {**self.run, "id": 19, "updated_at": "2026-09-08T00:00:02Z", "status": "completed",
+                 "display_title": "aomi-deploy|staging|42|" + "c" * 40 + "|main|"}
+        with patch.object(deploy, "request", side_effect=[{"workflow_runs": [self.run, prior]}, RuntimeError("Deployment service returned HTTP 404")]):
+            deploy.prepare()
+        self.assertIn("skip=false", (self.work / "outputs").read_text())
+        self.assertTrue((self.work / "source.tar.gz").exists())
+
+    def test_build_normalizes_the_source_repository_link_for_the_identity_check(self):
+        self.deployment["source"].update({"repository_link": "github.com/Partner/Apps", "installation_id": 12})
+        self.deployment["platform"].update({"platform_branch": "partner/apps/12/" + self.source[:12]})
+        self.deployment["platform"]["apps"][0].update({"aomi_toml_path": "aomi.toml", "path": "apps/12/r0123456789/demo"})
+        (self.work / "deployment.json").write_text(json.dumps(self.deployment))
+        with tarfile.open(self.work / "source.tar.gz", "w:gz") as archive:
+            for name, content in {"source/Cargo.toml": b'[workspace]\nmembers=[]\n', "source/Cargo.lock": b'', "source/aomi.toml": b'name="demo"'}.items():
+                member = tarfile.TarInfo(name); member.size = len(content)
+                archive.addfile(member, io.BytesIO(content))
+        with patch.dict(os.environ, {"BUILD_APP": "demo"}), patch.object(deploy, "ROOT", self.work / "root"), patch.object(candidate, "build_release") as build_release:
+            deploy.build()
+        ctx = build_release.call_args.args[1]
+        self.assertEqual(ctx["owner_repo"], "partner/apps")
+        self.assertEqual(ctx["short_commit"], self.source[:12])
+
+    def test_verify_rejects_an_app_outside_the_deployment(self):
+        with patch.dict(os.environ, {"VERIFY_APP": "other"}), patch.object(deploy, "api") as api:
+            with self.assertRaisesRegex(RuntimeError, "not part of this deployment"):
+                deploy.verify()
+        api.assert_not_called()
 
     def test_activation_uses_existing_platform_token_and_cancellation_prevents_write(self):
         with patch.object(deploy, "request", side_effect=[self.run, {"ok": True, "activation": {"apps": [{}]}}]) as request:
